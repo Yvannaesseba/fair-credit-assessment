@@ -1,0 +1,16 @@
+# GMSC Synthetic Data Evaluation
+
+Code for MSc dissertation: "Evaluating Synthetic Data for Fair and Transparent Credit Scoring: An Empirical Study of Model Performance, Fairness and Explainability"
+
+## Pipeline Overview
+
+1. **01_data_preprocessing.py** - Data cleaning and train/test splitting
+2. **02_synthetic_generation.py** - CTGAN synthetic data generation
+3. **03_model_training.py** - XGBoost, Logistic Regression, and EBM training
+4. **04_fairness_evaluation.py** - Demographic parity and equal opportunity analysis
+5. **05_explainability_shap.py** - SHAP feature importance and consistency
+6. **06_statistical_validation.py** - Bootstrap CI and significance testing
+
+## Dataset
+
+Give Me Some Credit (GMSC) dataset from Kaggle
