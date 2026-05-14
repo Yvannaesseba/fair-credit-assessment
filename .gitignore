@@ -1,0 +1,8 @@
+# Datasets (too large / licensing restrictions)
+data/*.csv
+data/*.zip
+*.csv
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+.DS_Store
