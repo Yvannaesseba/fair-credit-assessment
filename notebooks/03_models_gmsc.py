@@ -7,26 +7,22 @@ from sklearn.pipeline import Pipeline
 from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn.metrics import (
     roc_auc_score, recall_score, precision_score,
-    f1_score, average_precision_score,
-    classification_report, confusion_matrix
+    f1_score, average_precision_score
 )
-import time
+from sklearn.model_selection import train_test_split
+import os
 
 SEED = 42
 
-print("Loading data...")
-gmsc_real = pd.read_csv('Data/Processed/gmsc_cleaned.csv')
-gmsc_synth = pd.read_csv('Data/Synthetic/gmsc_synthetic_ctgan.csv')
-
 def preprocess_data(df, is_real=True):
     df = df.copy()
-    
+
     if 'ID' in df.columns:
         df = df.drop(columns=['ID'])
-    
+
     y = df['SeriousDlqin2yrs']
     X = df.drop(columns=['SeriousDlqin2yrs'])
-    
+
     if is_real:
         X.loc[X['age'] < 18, 'age'] = np.nan
         X.loc[X['age'] > 100, 'age'] = np.nan
@@ -35,205 +31,150 @@ def preprocess_data(df, is_real=True):
         X.loc[X['DebtRatio'] > 10, 'DebtRatio'] = 10
         X.loc[X['RevolvingUtilizationOfUnsecuredLines'] < 0, 'RevolvingUtilizationOfUnsecuredLines'] = np.nan
         X.loc[X['RevolvingUtilizationOfUnsecuredLines'] > 2, 'RevolvingUtilizationOfUnsecuredLines'] = 2
-    
+
     X = X.fillna(X.median())
     X = X.replace([np.inf, -np.inf], np.nan).fillna(X.median())
-    
+
     return X, y
 
-X_real, y_real = preprocess_data(gmsc_real, is_real=True)
-X_synth, y_synth = preprocess_data(gmsc_synth, is_real=False)
 
-common_cols = list(set(X_real.columns) & set(X_synth.columns))
-X_real = X_real[common_cols]
-X_synth = X_synth[common_cols]
+if __name__ == "__main__":
 
-from sklearn.model_selection import train_test_split
+    # load real and synthetic GMSC data
+    print("Loading data...")
+    gmsc_real = pd.read_csv('data/gmsc_cleaned.csv')
+    gmsc_synth = pd.read_csv('data/gmsc_synthetic.csv')
 
-TEST_SIZE = 0.2
+    X_real, y_real = preprocess_data(gmsc_real, is_real=True)
+    X_synth, y_synth = preprocess_data(gmsc_synth, is_real=False)
 
-X_real_train, X_real_test, y_real_train, y_real_test = train_test_split(
-    X_real, y_real, test_size=TEST_SIZE, stratify=y_real, random_state=SEED
-)
+    # keep only columns that exist in both datasets
+    common_cols = list(set(X_real.columns) & set(X_synth.columns))
+    X_real = X_real[common_cols]
+    X_synth = X_synth[common_cols]
 
-X_synth_train, X_synth_test, y_synth_train, y_synth_test = train_test_split(
-    X_synth, y_synth, test_size=TEST_SIZE, stratify=y_synth, random_state=SEED
-)
+    # split real data into train and test
+    X_real_train, X_real_test, y_real_train, y_real_test = train_test_split(
+        X_real, y_real, test_size=0.2, stratify=y_real, random_state=SEED
+    )
 
-print(f"\nReal train: {X_real_train.shape}, test: {X_real_test.shape}")
-print(f"Synth train: {X_synth_train.shape}, test: {X_synth_test.shape}")
+    # split synthetic data into train and test
+    X_synth_train, X_synth_test, y_synth_train, y_synth_test = train_test_split(
+        X_synth, y_synth, test_size=0.2, stratify=y_synth, random_state=SEED
+    )
 
-imbalance_ratio = (y_real_train == 0).sum() / (y_real_train == 1).sum()
-print(f"\nClass imbalance ratio: {imbalance_ratio:.2f}")
+    print(f"Real train: {X_real_train.shape}, test: {X_real_test.shape}")
+    print(f"Synth train: {X_synth_train.shape}, test: {X_synth_test.shape}")
 
-print("\n" + "="*80)
-print("XGBOOST MODEL")
-print("="*80)
+    # class imbalance ratio used to weight XGBoost
+    imbalance_ratio = (y_real_train == 0).sum() / (y_real_train == 1).sum()
+    print(f"Class imbalance ratio: {imbalance_ratio:.2f}")
 
-xgb_params = {
-    'n_estimators': 100,
-    'max_depth': 6,
-    'learning_rate': 0.1,
-    'subsample': 0.8,
-    'colsample_bytree': 0.8,
-    'scale_pos_weight': imbalance_ratio,
-    'tree_method': 'hist',
-    'random_state': SEED,
-    'n_jobs': -1
-}
+    # results will collect all model metrics
+    all_results = []
 
-print("\nTraining baseline (Real)...")
-model_xgb_real = XGBClassifier(**xgb_params)
-model_xgb_real.fit(X_real_train, y_real_train)
+    # store probabilities for the validation script
+    probabilities = {}
 
-print("Training experimental (Synthetic)...")
-model_xgb_synth = XGBClassifier(**xgb_params)
-model_xgb_synth.fit(X_synth_train, y_synth_train)
+    # XGBoost
+    print("\nTraining XGBoost...")
+    xgb_params = {
+        'n_estimators': 100,
+        'max_depth': 6,
+        'learning_rate': 0.1,
+        'subsample': 0.8,
+        'colsample_bytree': 0.8,
+        'scale_pos_weight': imbalance_ratio,
+        'tree_method': 'hist',
+        'random_state': SEED,
+        'n_jobs': -1
+    }
 
-y_pred_real = model_xgb_real.predict(X_real_test)
-y_proba_real = model_xgb_real.predict_proba(X_real_test)[:, 1]
+    model_xgb_real = XGBClassifier(**xgb_params)
+    model_xgb_real.fit(X_real_train, y_real_train)
 
-y_pred_synth = model_xgb_synth.predict(X_real_test)
-y_proba_synth = model_xgb_synth.predict_proba(X_real_test)[:, 1]
+    model_xgb_synth = XGBClassifier(**xgb_params)
+    model_xgb_synth.fit(X_synth_train, y_synth_train)
 
-xgb_results = {
-    'Model': ['XGB_Real', 'XGB_Synth'],
-    'AUC': [
-        roc_auc_score(y_real_test, y_proba_real),
-        roc_auc_score(y_real_test, y_proba_synth)
-    ],
-    'Recall': [
-        recall_score(y_real_test, y_pred_real),
-        recall_score(y_real_test, y_pred_synth)
-    ],
-    'Precision': [
-        precision_score(y_real_test, y_pred_real),
-        precision_score(y_real_test, y_pred_synth)
-    ],
-    'F1': [
-        f1_score(y_real_test, y_pred_real),
-        f1_score(y_real_test, y_pred_synth)
-    ],
-    'AvgPrec': [
-        average_precision_score(y_real_test, y_proba_real),
-        average_precision_score(y_real_test, y_proba_synth)
-    ]
-}
+    y_proba_xgb_real = model_xgb_real.predict_proba(X_real_test)[:, 1]
+    y_proba_xgb_synth = model_xgb_synth.predict_proba(X_real_test)[:, 1]
+    y_pred_xgb_real = (y_proba_xgb_real >= 0.5).astype(int)
+    y_pred_xgb_synth = (y_proba_xgb_synth >= 0.5).astype(int)
 
-xgb_df = pd.DataFrame(xgb_results)
-print("\nXGBoost Results:")
-print(xgb_df.to_string(index=False))
+    probabilities['xgb_real'] = y_proba_xgb_real
+    probabilities['xgb_synth'] = y_proba_xgb_synth
 
-print("\n" + "="*80)
-print("LOGISTIC REGRESSION MODEL")
-print("="*80)
+    all_results.append({'Model': 'XGBoost', 'Data': 'Real', 'AUC': roc_auc_score(y_real_test, y_proba_xgb_real), 'Recall': recall_score(y_real_test, y_pred_xgb_real), 'Precision': precision_score(y_real_test, y_pred_xgb_real), 'F1': f1_score(y_real_test, y_pred_xgb_real), 'AvgPrec': average_precision_score(y_real_test, y_proba_xgb_real)})
+    all_results.append({'Model': 'XGBoost', 'Data': 'Synthetic', 'AUC': roc_auc_score(y_real_test, y_proba_xgb_synth), 'Recall': recall_score(y_real_test, y_pred_xgb_synth), 'Precision': precision_score(y_real_test, y_pred_xgb_synth), 'F1': f1_score(y_real_test, y_pred_xgb_synth), 'AvgPrec': average_precision_score(y_real_test, y_proba_xgb_synth)})
 
-lr_pipeline_real = Pipeline([
-    ('scaler', StandardScaler()),
-    ('classifier', LogisticRegression(
-        max_iter=1000,
-        class_weight='balanced',
-        random_state=SEED,
-        n_jobs=-1
-    ))
-])
+    # Logistic Regression
+    print("Training Logistic Regression...")
+    lr_real = Pipeline([('scaler', StandardScaler()), ('classifier', LogisticRegression(max_iter=1000, class_weight='balanced', random_state=SEED, n_jobs=-1))])
+    lr_synth = Pipeline([('scaler', StandardScaler()), ('classifier', LogisticRegression(max_iter=1000, class_weight='balanced', random_state=SEED, n_jobs=-1))])
 
-lr_pipeline_synth = Pipeline([
-    ('scaler', StandardScaler()),
-    ('classifier', LogisticRegression(
-        max_iter=1000,
-        class_weight='balanced',
-        random_state=SEED,
-        n_jobs=-1
-    ))
-])
+    lr_real.fit(X_real_train, y_real_train)
+    lr_synth.fit(X_synth_train, y_synth_train)
 
-print("\nTraining baseline (Real)...")
-lr_pipeline_real.fit(X_real_train, y_real_train)
+    y_proba_lr_real = lr_real.predict_proba(X_real_test)[:, 1]
+    y_proba_lr_synth = lr_synth.predict_proba(X_real_test)[:, 1]
+    y_pred_lr_real = (y_proba_lr_real >= 0.5).astype(int)
+    y_pred_lr_synth = (y_proba_lr_synth >= 0.5).astype(int)
 
-print("Training experimental (Synthetic)...")
-lr_pipeline_synth.fit(X_synth_train, y_synth_train)
+    probabilities['lr_real'] = y_proba_lr_real
+    probabilities['lr_synth'] = y_proba_lr_synth
 
-y_pred_lr_real = lr_pipeline_real.predict(X_real_test)
-y_proba_lr_real = lr_pipeline_real.predict_proba(X_real_test)[:, 1]
+    all_results.append({'Model': 'LogisticRegression', 'Data': 'Real', 'AUC': roc_auc_score(y_real_test, y_proba_lr_real), 'Recall': recall_score(y_real_test, y_pred_lr_real), 'Precision': precision_score(y_real_test, y_pred_lr_real), 'F1': f1_score(y_real_test, y_pred_lr_real), 'AvgPrec': average_precision_score(y_real_test, y_proba_lr_real)})
+    all_results.append({'Model': 'LogisticRegression', 'Data': 'Synthetic', 'AUC': roc_auc_score(y_real_test, y_proba_lr_synth), 'Recall': recall_score(y_real_test, y_pred_lr_synth), 'Precision': precision_score(y_real_test, y_pred_lr_synth), 'F1': f1_score(y_real_test, y_pred_lr_synth), 'AvgPrec': average_precision_score(y_real_test, y_proba_lr_synth)})
 
-y_pred_lr_synth = lr_pipeline_synth.predict(X_real_test)
-y_proba_lr_synth = lr_pipeline_synth.predict_proba(X_real_test)[:, 1]
+    # EBM
+    print("Training EBM...")
+    ebm_real = ExplainableBoostingClassifier(random_state=SEED, n_jobs=-1)
+    ebm_real.fit(X_real_train, y_real_train)
 
-lr_results = {
-    'Model': ['LR_Real', 'LR_Synth'],
-    'AUC': [
-        roc_auc_score(y_real_test, y_proba_lr_real),
-        roc_auc_score(y_real_test, y_proba_lr_synth)
-    ],
-    'Recall': [
-        recall_score(y_real_test, y_pred_lr_real),
-        recall_score(y_real_test, y_pred_lr_synth)
-    ],
-    'Precision': [
-        precision_score(y_real_test, y_pred_lr_real),
-        precision_score(y_real_test, y_pred_lr_synth)
-    ],
-    'F1': [
-        f1_score(y_real_test, y_pred_lr_real),
-        f1_score(y_real_test, y_pred_lr_synth)
-    ],
-    'AvgPrec': [
-        average_precision_score(y_real_test, y_proba_lr_real),
-        average_precision_score(y_real_test, y_proba_lr_synth)
-    ]
-}
+    ebm_synth = ExplainableBoostingClassifier(random_state=SEED, n_jobs=-1)
+    ebm_synth.fit(X_synth_train, y_synth_train)
 
-lr_df = pd.DataFrame(lr_results)
-print("\nLogistic Regression Results:")
-print(lr_df.to_string(index=False))
+    y_proba_ebm_real = ebm_real.predict_proba(X_real_test)[:, 1]
+    y_proba_ebm_synth = ebm_synth.predict_proba(X_real_test)[:, 1]
+    y_pred_ebm_real = (y_proba_ebm_real >= 0.5).astype(int)
+    y_pred_ebm_synth = (y_proba_ebm_synth >= 0.5).astype(int)
 
-print("\n" + "="*80)
-print("EXPLAINABLE BOOSTING MACHINE (EBM)")
-print("="*80)
+    probabilities['ebm_real'] = y_proba_ebm_real
+    probabilities['ebm_synth'] = y_proba_ebm_synth
 
-print("\nTraining baseline (Real)...")
-model_ebm_real = ExplainableBoostingClassifier(random_state=SEED, n_jobs=-1)
-model_ebm_real.fit(X_real_train, y_real_train)
+    all_results.append({'Model': 'EBM', 'Data': 'Real', 'AUC': roc_auc_score(y_real_test, y_proba_ebm_real), 'Recall': recall_score(y_real_test, y_pred_ebm_real), 'Precision': precision_score(y_real_test, y_pred_ebm_real), 'F1': f1_score(y_real_test, y_pred_ebm_real), 'AvgPrec': average_precision_score(y_real_test, y_proba_ebm_real)})
+    all_results.append({'Model': 'EBM', 'Data': 'Synthetic', 'AUC': roc_auc_score(y_real_test, y_proba_ebm_synth), 'Recall': recall_score(y_real_test, y_pred_ebm_synth), 'Precision': precision_score(y_real_test, y_pred_ebm_synth), 'F1': f1_score(y_real_test, y_pred_ebm_synth), 'AvgPrec': average_precision_score(y_real_test, y_proba_ebm_synth)})
 
-print("Training experimental (Synthetic)...")
-model_ebm_synth = ExplainableBoostingClassifier(random_state=SEED, n_jobs=-1)
-model_ebm_synth.fit(X_synth_train, y_synth_train)
+    # save results
+    os.makedirs('outputs/metrics', exist_ok=True)
+    os.makedirs('outputs/roc_curves', exist_ok=True)
 
-y_pred_ebm_real = model_ebm_real.predict(X_real_test)
-y_proba_ebm_real = model_ebm_real.predict_proba(X_real_test)[:, 1]
+    results_df = pd.DataFrame(all_results)
+    results_df.to_csv('outputs/metrics/gmsc_model_performance.csv', index=False)
+    print("\nModel performance:")
+    print(results_df.to_string(index=False))
 
-y_pred_ebm_synth = model_ebm_synth.predict(X_real_test)
-y_proba_ebm_synth = model_ebm_synth.predict_proba(X_real_test)[:, 1]
+    # save probabilities for the validation and fairness scripts
+    pd.DataFrame({'probability': probabilities['xgb_real']}).to_csv('outputs/metrics/gmsc_proba_xgb_real.csv', index=False)
+    pd.DataFrame({'probability': probabilities['xgb_synth']}).to_csv('outputs/metrics/gmsc_proba_xgb_synth.csv', index=False)
+    pd.DataFrame({'probability': probabilities['lr_real']}).to_csv('outputs/metrics/gmsc_proba_lr_real.csv', index=False)
+    pd.DataFrame({'probability': probabilities['lr_synth']}).to_csv('outputs/metrics/gmsc_proba_lr_synth.csv', index=False)
+    pd.DataFrame({'probability': probabilities['ebm_real']}).to_csv('outputs/metrics/gmsc_proba_ebm_real.csv', index=False)
+    pd.DataFrame({'probability': probabilities['ebm_synth']}).to_csv('outputs/metrics/gmsc_proba_ebm_synth.csv', index=False)
 
-ebm_results = {
-    'Model': ['EBM_Real', 'EBM_Synth'],
-    'AUC': [
-        roc_auc_score(y_real_test, y_proba_ebm_real),
-        roc_auc_score(y_real_test, y_proba_ebm_synth)
-    ],
-    'Recall': [
-        recall_score(y_real_test, y_pred_ebm_real),
-        recall_score(y_real_test, y_pred_ebm_synth)
-    ],
-    'Precision': [
-        precision_score(y_real_test, y_pred_ebm_real),
-        precision_score(y_real_test, y_pred_ebm_synth)
-    ],
-    'F1': [
-        f1_score(y_real_test, y_pred_ebm_real),
-        f1_score(y_real_test, y_pred_ebm_synth)
-    ],
-    'AvgPrec': [
-        average_precision_score(y_real_test, y_proba_ebm_real),
-        average_precision_score(y_real_test, y_proba_ebm_synth)
-    ]
-}
+    # save ROC curve data for the portfolio page
+    from sklearn.metrics import roc_curve
+    for model_name, proba_real, proba_synth in [
+        ('xgboost', y_proba_xgb_real, y_proba_xgb_synth),
+        ('lr', y_proba_lr_real, y_proba_lr_synth),
+        ('ebm', y_proba_ebm_real, y_proba_ebm_synth)
+    ]:
+        for data_type, proba in [('real', proba_real), ('synth', proba_synth)]:
+            fpr, tpr, _ = roc_curve(y_real_test, proba)
+            auc = roc_auc_score(y_real_test, proba)
+            roc_df = pd.DataFrame({'fpr': fpr, 'tpr': tpr})
+            roc_df['auc'] = auc
+            roc_df.to_csv(f'outputs/roc_curves/gmsc_{model_name}_{data_type}.csv', index=False)
 
-ebm_df = pd.DataFrame(ebm_results)
-print("\nEBM Results:")
-print(ebm_df.to_string(index=False))
-
-all_results = pd.concat([xgb_df, lr_df, ebm_df], ignore_index=True)
-all_results.to_csv('Results/gmsc_model_comparison.csv', index=False)
-print("\nAll results saved to Results/gmsc_model_comparison.csv")
+    print("\nSaved results to outputs/metrics/ and outputs/roc_curves/")
+    print("Done.")

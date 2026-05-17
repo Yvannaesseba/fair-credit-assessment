@@ -1,0 +1,42 @@
+{
+    "columns": {
+        "Unnamed: 0": {
+            "sdtype": "id"
+        },
+        "RevolvingUtilizationOfUnsecuredLines": {
+            "sdtype": "numerical"
+        },
+        "age": {
+            "sdtype": "numerical"
+        },
+        "NumberOfTime30-59DaysPastDueNotWorse": {
+            "sdtype": "numerical"
+        },
+        "DebtRatio": {
+            "sdtype": "numerical"
+        },
+        "MonthlyIncome": {
+            "sdtype": "numerical"
+        },
+        "NumberOfOpenCreditLinesAndLoans": {
+            "sdtype": "numerical"
+        },
+        "NumberOfTimes90DaysLate": {
+            "sdtype": "numerical"
+        },
+        "NumberRealEstateLoansOrLines": {
+            "sdtype": "numerical"
+        },
+        "NumberOfTime60-89DaysPastDueNotWorse": {
+            "sdtype": "numerical"
+        },
+        "NumberOfDependents": {
+            "sdtype": "numerical"
+        },
+        "SeriousDlqin2yrs": {
+            "sdtype": "categorical"
+        }
+    },
+    "METADATA_SPEC_VERSION": "SINGLE_TABLE_V1",
+    "primary_key": "Unnamed: 0"
+}
