@@ -1,227 +1,178 @@
-"""
-Home Credit Model Training (TSTR Framework)
-Trains models on real and synthetic data, evaluates on real test set
-"""
-
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import datetime
-import json
-import warnings
-from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, average_precision_score
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, average_precision_score, roc_curve
 from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 import xgboost as xgb
-from xgboost.callback import EarlyStopping
 from interpret.glassbox import ExplainableBoostingClassifier
+import warnings
+import os
 
 warnings.filterwarnings("ignore")
 
-# Configuration
 RANDOM_STATE = 42
-BASE_DIR = Path('/path/to/dissertation')  # UPDATE THIS
-FS_DIR = BASE_DIR / 'Feature_Selection_Results'
-CTGAN_DIR = BASE_DIR / 'Results' / 'CTGAN'
-RESULTS_DIR = BASE_DIR / 'Results' / 'Model_Training'
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Load data
-train_real = pd.read_csv(FS_DIR / 'train_ctgan_ready.csv')
-val_real = pd.read_csv(FS_DIR / 'val_ctgan_ready.csv')
-test_real = pd.read_csv(FS_DIR / 'test_ctgan_ready.csv')
-train_synth = pd.read_csv(CTGAN_DIR / 'synth_train_ctgan.csv')
+def preprocess(train_df, val_df, test_df):
+    categorical_cols = [c for c in train_df.columns if train_df[c].dtype == 'object' and c != 'TARGET']
 
-# Identify column types
-categorical_cols = [c for c in train_real.columns if train_real[c].dtype == 'object' and c != 'TARGET']
-
-# Preprocessing function
-def preprocess_for_training(train_df, val_df, test_df, categorical_cols):
-    """Encode categoricals, handle missing values"""
-    
     train_proc = train_df.copy()
     val_proc = val_df.copy()
     test_proc = test_df.copy()
-    
-    # Encode categorical variables
-    label_encoders = {}
+
+    # encode categorical columns using train set labels
     for col in categorical_cols:
         le = LabelEncoder()
         train_proc[col] = le.fit_transform(train_proc[col].astype(str))
-        
         val_proc[col] = val_proc[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
         test_proc[col] = test_proc[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
-        
         if 'Unknown' not in le.classes_:
             le.classes_ = np.append(le.classes_, 'Unknown')
-        
         val_proc[col] = le.transform(val_proc[col].astype(str))
         test_proc[col] = le.transform(test_proc[col].astype(str))
-        label_encoders[col] = le
-    
-    # Separate target
+
     X_train = train_proc.drop('TARGET', axis=1)
     y_train = train_proc['TARGET']
     X_val = val_proc.drop('TARGET', axis=1)
     y_val = val_proc['TARGET']
     X_test = test_proc.drop('TARGET', axis=1)
     y_test = test_proc['TARGET']
-    
-    return X_train, y_train, X_val, y_val, X_test, y_test, label_encoders
 
-# Prepare datasets
-X_train_real, y_train_real, X_val_real, y_val_real, X_test_real, y_test_real, le_real = \
-    preprocess_for_training(train_real, val_real, test_real, categorical_cols)
+    return X_train, y_train, X_val, y_val, X_test, y_test
 
-X_train_synth, y_train_synth, _, _, _, _, le_synth = \
-    preprocess_for_training(train_synth, val_real, test_real, categorical_cols)
-
-# Evaluation function
-def evaluate_model(model, X, y):
-    """Evaluate model performance"""
-    if hasattr(model, 'predict_proba'):
-        y_pred_proba = model.predict_proba(X)[:, 1]
-    else:
-        y_pred_proba = model.predict(X)
-    
-    y_pred = (y_pred_proba >= 0.5).astype(int)
-    
+def evaluate(model, X, y):
+    y_proba = model.predict_proba(X)[:, 1]
+    y_pred = (y_proba >= 0.5).astype(int)
     return {
-        'AUC': roc_auc_score(y, y_pred_proba),
+        'AUC': roc_auc_score(y, y_proba),
         'Recall': recall_score(y, y_pred, zero_division=0),
         'Precision': precision_score(y, y_pred, zero_division=0),
         'F1': f1_score(y, y_pred, zero_division=0),
-        'AvgPrec': average_precision_score(y, y_pred_proba)
+        'AvgPrec': average_precision_score(y, y_proba)
+    }, y_proba
+
+
+if __name__ == "__main__":
+
+    # load real and synthetic training data
+    print("Loading Home Credit data...")
+    train_real = pd.read_csv('data/hc_train_ctgan_ready.csv')
+    val_real = pd.read_csv('data/hc_val_ctgan_ready.csv')
+    test_real = pd.read_csv('data/hc_test_ctgan_ready.csv')
+    train_synth = pd.read_csv('data/hc_synthetic.csv')
+
+    # preprocess real data
+    X_train_real, y_train_real, X_val_real, y_val_real, X_test_real, y_test_real = \
+        preprocess(train_real, val_real, test_real)
+
+    # preprocess synthetic data using same val and test splits
+    X_train_synth, y_train_synth, _, _, _, _ = \
+        preprocess(train_synth, val_real, test_real)
+
+    print(f"Real train: {X_train_real.shape}, Test: {X_test_real.shape}")
+    print(f"Synth train: {X_train_synth.shape}")
+
+    all_results = []
+    all_probas = {}
+
+    # XGBoost
+    print("\nTraining XGBoost...")
+    scale_pos_weight_real = (y_train_real == 0).sum() / (y_train_real == 1).sum()
+    scale_pos_weight_synth = (y_train_synth == 0).sum() / (y_train_synth == 1).sum()
+
+    xgb_params = {
+        'objective': 'binary:logistic',
+        'max_depth': 6,
+        'learning_rate': 0.05,
+        'n_estimators': 500,
+        'subsample': 0.8,
+        'colsample_bytree': 0.8,
+        'random_state': RANDOM_STATE,
+        'tree_method': 'hist'
     }
 
-# XGBoost training
-scale_pos_weight_real = (y_train_real == 0).sum() / (y_train_real == 1).sum()
-scale_pos_weight_synth = (y_train_synth == 0).sum() / (y_train_synth == 1).sum()
+    xgb_real = xgb.XGBClassifier(**{**xgb_params, 'scale_pos_weight': scale_pos_weight_real})
+    xgb_real.fit(X_train_real, y_train_real, verbose=False)
 
-xgb_params = {
-    'objective': 'binary:logistic',
-    'eval_metric': 'auc',
-    'max_depth': 6,
-    'learning_rate': 0.05,
-    'n_estimators': 1000,
-    'min_child_weight': 1,
-    'subsample': 0.8,
-    'colsample_bytree': 0.8,
-    'random_state': RANDOM_STATE,
-    'tree_method': 'hist'
-}
+    xgb_synth = xgb.XGBClassifier(**{**xgb_params, 'scale_pos_weight': scale_pos_weight_synth})
+    xgb_synth.fit(X_train_synth, y_train_synth, verbose=False)
 
-# Train on real data
-xgb_real = xgb.XGBClassifier(**{**xgb_params, 'scale_pos_weight': scale_pos_weight_real})
-xgb_real.fit(
-    X_train_real, y_train_real,
-    eval_set=[(X_val_real, y_val_real)],
-    callbacks=[EarlyStopping(rounds=50, save_best=True)],
-    verbose=False
-)
+    xgb_real_res, xgb_real_proba = evaluate(xgb_real, X_test_real, y_test_real)
+    xgb_synth_res, xgb_synth_proba = evaluate(xgb_synth, X_test_real, y_test_real)
 
-# Train on synthetic data
-xgb_synth = xgb.XGBClassifier(**{**xgb_params, 'scale_pos_weight': scale_pos_weight_synth})
-xgb_synth.fit(
-    X_train_synth, y_train_synth,
-    eval_set=[(X_val_real, y_val_real)],
-    callbacks=[EarlyStopping(rounds=50, save_best=True)],
-    verbose=False
-)
+    all_probas['xgb_real'] = xgb_real_proba
+    all_probas['xgb_synth'] = xgb_synth_proba
 
-# Evaluate XGBoost models
-xgb_real_results = evaluate_model(xgb_real, X_test_real, y_test_real)
-xgb_synth_results = evaluate_model(xgb_synth, X_test_real, y_test_real)
+    all_results.append({'Model': 'XGBoost', 'Data': 'Real', 'Dataset': 'HomeCredit', **xgb_real_res})
+    all_results.append({'Model': 'XGBoost', 'Data': 'Synthetic', 'Dataset': 'HomeCredit', **xgb_synth_res})
 
-# Logistic Regression
-from sklearn.linear_model import LogisticRegression
+    # Logistic Regression
+    print("Training Logistic Regression...")
+    lr_real = Pipeline([('scaler', StandardScaler()), ('clf', LogisticRegression(max_iter=1000, class_weight='balanced', random_state=RANDOM_STATE))])
+    lr_synth = Pipeline([('scaler', StandardScaler()), ('clf', LogisticRegression(max_iter=1000, class_weight='balanced', random_state=RANDOM_STATE))])
 
-lr_real = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE, class_weight='balanced')
-lr_real.fit(X_train_real, y_train_real)
+    lr_real.fit(X_train_real, y_train_real)
+    lr_synth.fit(X_train_synth, y_train_synth)
 
-lr_synth = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE, class_weight='balanced')
-lr_synth.fit(X_train_synth, y_train_synth)
+    lr_real_res, lr_real_proba = evaluate(lr_real, X_test_real, y_test_real)
+    lr_synth_res, lr_synth_proba = evaluate(lr_synth, X_test_real, y_test_real)
 
-lr_real_results = evaluate_model(lr_real, X_test_real, y_test_real)
-lr_synth_results = evaluate_model(lr_synth, X_test_real, y_test_real)
+    all_probas['lr_real'] = lr_real_proba
+    all_probas['lr_synth'] = lr_synth_proba
 
-# EBM
-ebm_real = ExplainableBoostingClassifier(random_state=RANDOM_STATE, max_bins=32)
-ebm_real.fit(X_train_real, y_train_real)
+    all_results.append({'Model': 'LogisticRegression', 'Data': 'Real', 'Dataset': 'HomeCredit', **lr_real_res})
+    all_results.append({'Model': 'LogisticRegression', 'Data': 'Synthetic', 'Dataset': 'HomeCredit', **lr_synth_res})
 
-ebm_synth = ExplainableBoostingClassifier(random_state=RANDOM_STATE, max_bins=32)
-ebm_synth.fit(X_train_synth, y_train_synth)
+    # EBM
+    print("Training EBM...")
+    ebm_real = ExplainableBoostingClassifier(random_state=RANDOM_STATE, max_bins=32)
+    ebm_real.fit(X_train_real, y_train_real)
 
-ebm_real_results = evaluate_model(ebm_real, X_test_real, y_test_real)
-ebm_synth_results = evaluate_model(ebm_synth, X_test_real, y_test_real)
+    ebm_synth = ExplainableBoostingClassifier(random_state=RANDOM_STATE, max_bins=32)
+    ebm_synth.fit(X_train_synth, y_train_synth)
 
-# Compile results
-results = []
+    ebm_real_res, ebm_real_proba = evaluate(ebm_real, X_test_real, y_test_real)
+    ebm_synth_res, ebm_synth_proba = evaluate(ebm_synth, X_test_real, y_test_real)
 
-for model_name, real_res, synth_res in [
-    ('XGBoost', xgb_real_results, xgb_synth_results),
-    ('LogisticRegression', lr_real_results, lr_synth_results),
-    ('EBM', ebm_real_results, ebm_synth_results)
-]:
-    # Real data results
-    results.append({
-        'Dataset': 'Home Credit',
-        'Model': model_name,
-        'Data': 'Real',
-        **real_res
-    })
-    
-    # Synthetic data results
-    results.append({
-        'Dataset': 'Home Credit',
-        'Model': model_name,
-        'Data': 'Synthetic',
-        **synth_res
-    })
+    all_probas['ebm_real'] = ebm_real_proba
+    all_probas['ebm_synth'] = ebm_synth_proba
 
-results_df = pd.DataFrame(results)
+    all_results.append({'Model': 'EBM', 'Data': 'Real', 'Dataset': 'HomeCredit', **ebm_real_res})
+    all_results.append({'Model': 'EBM', 'Data': 'Synthetic', 'Dataset': 'HomeCredit', **ebm_synth_res})
 
-# Calculate retention rates
-retention_results = []
+    # save results
+    os.makedirs('outputs/metrics', exist_ok=True)
+    os.makedirs('outputs/roc_curves', exist_ok=True)
 
-for model_name, real_res, synth_res in [
-    ('XGBoost', xgb_real_results, xgb_synth_results),
-    ('LogisticRegression', lr_real_results, lr_synth_results),
-    ('EBM', ebm_real_results, ebm_synth_results)
-]:
-    retention = {
-        'Dataset': 'Home Credit',
-        'Model': model_name,
-        'AUC_Retention_%': (synth_res['AUC'] / real_res['AUC']) * 100 if real_res['AUC'] > 0 else 0,
-        'Recall_Retention_%': (synth_res['Recall'] / real_res['Recall']) * 100 if real_res['Recall'] > 0 else 0,
-        'Precision_Retention_%': (synth_res['Precision'] / real_res['Precision']) * 100 if real_res['Precision'] > 0 else 0,
-        'F1_Retention_%': (synth_res['F1'] / real_res['F1']) * 100 if real_res['F1'] > 0 else 0,
-        'AvgPrec_Retention_%': (synth_res['AvgPrec'] / real_res['AvgPrec']) * 100 if real_res['AvgPrec'] > 0 else 0
-    }
-    retention_results.append(retention)
+    results_df = pd.DataFrame(all_results)
+    results_df.to_csv('outputs/metrics/hc_model_performance.csv', index=False)
 
-retention_df = pd.DataFrame(retention_results)
+    print("\nModel performance:")
+    print(results_df[['Model', 'Data', 'AUC', 'Recall', 'Precision', 'F1']].to_string(index=False))
 
-# Save results
-results_df.to_csv(RESULTS_DIR / 'model_performance.csv', index=False)
-retention_df.to_csv(RESULTS_DIR / 'performance_retention.csv', index=False)
+    # save probabilities for fairness and validation scripts
+    for key, proba in all_probas.items():
+        pd.DataFrame({'probability': proba}).to_csv(f'outputs/metrics/hc_proba_{key}.csv', index=False)
 
-# Save models
-xgb_real.save_model(str(RESULTS_DIR / 'xgb_real.json'))
-xgb_synth.save_model(str(RESULTS_DIR / 'xgb_synth.json'))
+    # save test labels
+    pd.DataFrame({'TARGET': y_test_real.values}).to_csv('outputs/metrics/hc_test_labels.csv', index=False)
 
-import pickle
-with open(RESULTS_DIR / 'lr_real.pkl', 'wb') as f:
-    pickle.dump(lr_real, f)
-with open(RESULTS_DIR / 'lr_synth.pkl', 'wb') as f:
-    pickle.dump(lr_synth, f)
-with open(RESULTS_DIR / 'ebm_real.pkl', 'wb') as f:
-    pickle.dump(ebm_real, f)
-with open(RESULTS_DIR / 'ebm_synth.pkl', 'wb') as f:
-    pickle.dump(ebm_synth, f)
+    # save ROC curve data for the portfolio page
+    model_map = [
+        ('xgboost', all_probas['xgb_real'], all_probas['xgb_synth']),
+        ('lr', all_probas['lr_real'], all_probas['lr_synth']),
+        ('ebm', all_probas['ebm_real'], all_probas['ebm_synth'])
+    ]
 
-print("Model training complete")
-print(f"\nXGBoost Performance:")
-print(f"  Real AUC: {xgb_real_results['AUC']:.4f}")
-print(f"  Synth AUC: {xgb_synth_results['AUC']:.4f}")
-print(f"  Retention: {retention_results[0]['AUC_Retention_%']:.1f}%")
-print(f"\nResults saved to {RESULTS_DIR}")
+    for model_name, proba_real, proba_synth in model_map:
+        for data_type, proba in [('real', proba_real), ('synth', proba_synth)]:
+            fpr, tpr, _ = roc_curve(y_test_real, proba)
+            auc = roc_auc_score(y_test_real, proba)
+            roc_df = pd.DataFrame({'fpr': fpr, 'tpr': tpr})
+            roc_df['auc'] = auc
+            roc_df.to_csv(f'outputs/roc_curves/hc_{model_name}_{data_type}.csv', index=False)
+
+    print("\nSaved results to outputs/metrics/ and outputs/roc_curves/")
+    print("Done.")

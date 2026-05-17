@@ -1,0 +1,9 @@
+{
+  "training_duration_minutes": 199.1,
+  "epochs": 300,
+  "real_train_rows": 184338,
+  "synth_train_rows": 184338,
+  "real_default_rate": 0.08073213336371231,
+  "synth_default_rate": 0.0805910881098851,
+  "features": 46
+}
