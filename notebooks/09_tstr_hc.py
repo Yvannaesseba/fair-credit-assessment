@@ -13,70 +13,39 @@ warnings.filterwarnings('ignore')
 RANDOM_STATE = 42
 N_FOLDS = 5
 
-def safe_fit_ctgan(fold_train, categorical_cols, max_retries=3):
-    from sdv.single_table import CTGANSynthesizer
-    from sdv.metadata import SingleTableMetadata
-
-    # cap categorical columns to top 20 categories to avoid NaN issues
-    fold_clean = fold_train.copy()
-    for col in categorical_cols:
-        top_cats = fold_clean[col].value_counts().head(20).index
-        fold_clean[col] = fold_clean[col].apply(lambda x: x if x in top_cats else 'Other')
-
-    metadata = SingleTableMetadata()
-    metadata.detect_from_dataframe(fold_clean)
-    for col in categorical_cols + ['TARGET']:
-        if col in fold_clean.columns:
-            metadata.update_column(column_name=col, sdtype='categorical')
-
-    for attempt in range(max_retries):
-        try:
-            ctgan_fold = CTGANSynthesizer(
-                metadata=metadata,
-                epochs=100,
-                verbose=False,
-                batch_size=500,
-                pac=10
-            )
-            ctgan_fold.fit(fold_clean)
-            synth = ctgan_fold.sample(num_rows=len(fold_clean))
-            return synth, fold_clean
-        except ValueError as e:
-            print(f"  CTGAN attempt {attempt+1} failed: {e}, retrying...")
-
-    raise RuntimeError("CTGAN failed after max retries")
-
+def preprocess(df, categorical_cols, encoders=None):
+    df_proc = df.copy()
+    if encoders is None:
+        encoders = {}
+        for col in categorical_cols:
+            le = LabelEncoder()
+            df_proc[col] = le.fit_transform(df_proc[col].astype(str))
+            encoders[col] = le
+    else:
+        for col in categorical_cols:
+            le = encoders[col]
+            df_proc[col] = df_proc[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
+            if 'Unknown' not in le.classes_:
+                le.classes_ = np.append(le.classes_, 'Unknown')
+            df_proc[col] = le.transform(df_proc[col].astype(str))
+    X = df_proc.drop('TARGET', axis=1)
+    y = df_proc['TARGET']
+    return X, y, encoders
 
 if __name__ == "__main__":
 
     print(f"Running {N_FOLDS}-fold CV-TSTR on Home Credit...")
+
+    # load real and synthetic data
     train_real = pd.read_csv('data/hc_train_ctgan_ready.csv')
     val_real = pd.read_csv('data/hc_val_ctgan_ready.csv')
     test_real = pd.read_csv('data/hc_test_ctgan_ready.csv')
+    synth_data = pd.read_csv('data/hc_synthetic.csv')
 
     # combine train and val for cross validation
     data_real = pd.concat([train_real, val_real], ignore_index=True)
 
     categorical_cols = [c for c in data_real.columns if data_real[c].dtype == 'object' and c != 'TARGET']
-
-    def preprocess(df, categorical_cols, encoders=None):
-        df_proc = df.copy()
-        if encoders is None:
-            encoders = {}
-            for col in categorical_cols:
-                le = LabelEncoder()
-                df_proc[col] = le.fit_transform(df_proc[col].astype(str))
-                encoders[col] = le
-        else:
-            for col in categorical_cols:
-                le = encoders[col]
-                df_proc[col] = df_proc[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
-                if 'Unknown' not in le.classes_:
-                    le.classes_ = np.append(le.classes_, 'Unknown')
-                df_proc[col] = le.transform(df_proc[col].astype(str))
-        X = df_proc.drop('TARGET', axis=1)
-        y = df_proc['TARGET']
-        return X, y, encoders
 
     skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=RANDOM_STATE)
     cv_results = []
@@ -84,23 +53,14 @@ if __name__ == "__main__":
     for fold, (train_idx, val_idx) in enumerate(skf.split(data_real, data_real['TARGET']), 1):
         print(f"\nFold {fold}/{N_FOLDS}")
 
-        fold_train = data_real.iloc[train_idx].copy()
-        fold_train['TARGET'] = fold_train['TARGET'].astype(str)
+        fold_train_real = data_real.iloc[train_idx].copy()
+        fold_train_synth = synth_data.sample(n=len(fold_train_real), random_state=fold, replace=True).copy()
 
-        X_train_real, y_train_real, encoders = preprocess(fold_train, categorical_cols)
+        X_train_real, y_train_real, encoders = preprocess(fold_train_real, categorical_cols)
         X_test_real, y_test_real, _ = preprocess(test_real, categorical_cols, encoders)
+        X_train_synth, y_train_synth, _ = preprocess(fold_train_synth, categorical_cols, encoders)
 
-        # generate synthetic data for this fold
-        fold_synth, fold_clean = safe_fit_ctgan(fold_train, categorical_cols)
-
-        # make sure TARGET is binary
-        fold_synth['TARGET'] = fold_synth['TARGET'].apply(
-            lambda x: 1 if str(x) == '1' else 0
-        ).astype(int)
-
-        X_train_synth, y_train_synth, _ = preprocess(fold_synth, categorical_cols, encoders)
-
-        # align columns between real and synthetic
+        # align columns
         common_cols = [c for c in X_train_real.columns if c in X_train_synth.columns]
         X_train_real = X_train_real[common_cols]
         X_train_synth = X_train_synth[common_cols]
@@ -138,7 +98,6 @@ if __name__ == "__main__":
     cv_df = pd.DataFrame(cv_results)
 
     t_stat, p_value = stats.ttest_rel(cv_df['AUC_Real'], cv_df['AUC_Synth'])
-
     diff = cv_df['AUC_Synth'] - cv_df['AUC_Real']
     cohens_d = diff.mean() / diff.std() if diff.std() > 0 else 0
 
