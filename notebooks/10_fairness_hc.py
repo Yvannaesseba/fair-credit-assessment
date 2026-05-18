@@ -1,239 +1,143 @@
-"""
-Fairness Analysis using Microsoft Fairlearn
-Evaluates demographic parity and equal opportunity for both GMSC and Home Credit
-Works with XGBoost models trained on real vs synthetic data
-"""
-
-import os
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-from fairlearn.metrics import MetricFrame, selection_rate
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, 
-    f1_score, confusion_matrix
-)
+import numpy as np
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, confusion_matrix
 import warnings
+import os
 
 warnings.filterwarnings("ignore")
 
-# Configuration
-DATASET = "GMSC"  # Change to "HomeCredit" for Home Credit analysis
 THRESHOLD = 0.5
-BASE_DIR = Path('/path/to/dissertation')  # UPDATE THIS
-OUTPUT_DIR = BASE_DIR / 'Chapter_5_Figures'
-TABLES_DIR = BASE_DIR / 'Chapter_5_Tables'
 
-for d in [OUTPUT_DIR, TABLES_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
-
-# Helper functions
 def make_age_groups(age_years):
-    """Create age groups: Young (<=35), Middle (36-55), Senior (56+)"""
     bins = [-np.inf, 35, 55, np.inf]
     labels = ["Young (<=35)", "Middle (36-55)", "Senior (56+)"]
     return pd.cut(age_years, bins=bins, labels=labels)
 
-def derive_age_years_homecredit(df):
-    """Extract age from Home Credit dataset"""
-    if "AGE_YEARS" in df.columns:
-        return pd.to_numeric(df["AGE_YEARS"], errors="coerce")
-    if "DAYS_BIRTH" in df.columns:
-        return (-pd.to_numeric(df["DAYS_BIRTH"], errors="coerce") / 365.0)
-    if "age" in df.columns:
-        return pd.to_numeric(df["age"], errors="coerce")
-    raise ValueError("Could not derive age years for Home Credit")
+def compute_fairness(y_true, y_proba, age_groups, threshold=0.5):
+    y_pred = (y_proba >= threshold).astype(int)
+    results = []
 
-def derive_age_years_gmsc(df):
-    """Extract age from GMSC dataset"""
-    if "age" in df.columns:
-        return pd.to_numeric(df["age"], errors="coerce")
-    raise ValueError("GMSC expected column 'age' not found")
+    for group in age_groups.unique():
+        mask = age_groups == group
+        if mask.sum() == 0:
+            continue
 
-def predict_probabilities(model, X):
-    """Get prediction probabilities"""
-    if hasattr(model, "predict_proba"):
-        return model.predict_proba(X)[:, 1]
-    raise ValueError("Model has no predict_proba method")
+        yt = y_true[mask]
+        yp = y_pred[mask]
+        yprob = y_proba[mask]
 
-def compute_group_fairness(y_true, y_prob, sensitive_series, threshold=0.5):
-    """Compute fairness metrics by demographic group"""
-    y_true = np.asarray(y_true).astype(int)
-    y_prob = np.asarray(y_prob).astype(float)
-    y_pred = (y_prob >= threshold).astype(int)
-    
-    def true_positive_rate(y_t, y_p):
-        tn, fp, fn, tp = confusion_matrix(y_t, y_p, labels=[0, 1]).ravel()
-        return tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    
-    def false_positive_rate(y_t, y_p):
-        tn, fp, fn, tp = confusion_matrix(y_t, y_p, labels=[0, 1]).ravel()
-        return fp / (fp + tn) if (fp + tn) > 0 else 0.0
-    
-    metrics = {
-        "SelectionRate": selection_rate,
-        "TPR": true_positive_rate,
-        "FPR": false_positive_rate,
-        "Precision": lambda yt, yp: precision_score(yt, yp, zero_division=0),
-        "Recall": lambda yt, yp: recall_score(yt, yp, zero_division=0),
-        "F1": lambda yt, yp: f1_score(yt, yp, zero_division=0),
-        "Accuracy": accuracy_score,
-    }
-    
-    mf = MetricFrame(
-        metrics=metrics,
-        y_true=y_true,
-        y_pred=y_pred,
-        sensitive_features=sensitive_series
-    )
-    
-    by_group = mf.by_group.reset_index()
-    by_group = by_group.rename(columns={by_group.columns[0]: "Group"})
-    overall = mf.overall
-    
-    # Demographic parity (selection rate spread)
-    sr = by_group[["Group", "SelectionRate"]].copy()
-    dp_diff = sr["SelectionRate"].max() - sr["SelectionRate"].min()
-    
-    # Equal opportunity (TPR spread)
-    tpr = by_group[["Group", "TPR"]].copy()
-    eo_diff = tpr["TPR"].max() - tpr["TPR"].min()
-    
+        # selection rate is the proportion predicted as default
+        selection_rate = yp.mean()
+
+        # true positive rate (equal opportunity)
+        tn, fp, fn, tp = confusion_matrix(yt, yp, labels=[0, 1]).ravel()
+        tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+
+        results.append({
+            'Group': str(group),
+            'Count': int(mask.sum()),
+            'SelectionRate': selection_rate,
+            'TPR': tpr,
+            'FPR': fpr,
+            'Precision': precision_score(yt, yp, zero_division=0),
+            'Recall': recall_score(yt, yp, zero_division=0),
+            'F1': f1_score(yt, yp, zero_division=0),
+            'Accuracy': accuracy_score(yt, yp)
+        })
+
+    by_group = pd.DataFrame(results)
+
+    # demographic parity difference — spread in selection rates across groups
+    dp_diff = by_group['SelectionRate'].max() - by_group['SelectionRate'].min()
+
+    # equal opportunity difference — spread in TPR across groups
+    eo_diff = by_group['TPR'].max() - by_group['TPR'].min()
+
     summary = {
-        "DP_Difference_(SelectionRate_Spread)": float(dp_diff),
-        "EO_Difference_(TPR_Spread)": float(eo_diff),
+        'DP_Difference': float(dp_diff),
+        'EO_Difference': float(eo_diff)
     }
-    
-    return by_group, overall, summary
 
-def plot_metric_bars(by_group_real, by_group_synth, metric_col, title, save_png, save_pdf):
-    """Create bar chart comparing real vs synthetic trained models"""
-    groups = by_group_real["Group"].astype(str).tolist()
-    
-    real_vals = by_group_real.set_index("Group")[metric_col].reindex(groups).values
-    synth_vals = by_group_synth.set_index("Group")[metric_col].reindex(groups).values
-    
-    x = np.arange(len(groups))
-    width = 0.35
-    
-    plt.figure(figsize=(9, 5))
-    plt.bar(x - width/2, real_vals, width, label="Real-trained")
-    plt.bar(x + width/2, synth_vals, width, label="Synthetic-trained")
-    plt.xticks(x, groups, rotation=0)
-    plt.ylabel(metric_col)
-    plt.title(title)
-    plt.legend()
-    plt.grid(alpha=0.25, axis="y", linestyle="--")
-    plt.tight_layout()
-    plt.savefig(save_png, dpi=300, bbox_inches="tight")
-    plt.savefig(save_pdf, bbox_inches="tight")
-    plt.close()
+    return by_group, summary
 
-# ===== MAIN ANALYSIS =====
-# Required inputs (must be provided from model training script):
-# - df_test_real: test dataframe with TARGET and age column(s)
-# - X_test_real: preprocessed features for models
-# - y_test_real: true labels
-# - xgb_real: XGBoost model trained on real data
-# - xgb_synth: XGBoost model trained on synthetic data
 
-# These should be loaded/passed from your model training script
-# Example:
-# from model_training import df_test_real, X_test_real, y_test_real, xgb_real, xgb_synth
+if __name__ == "__main__":
 
-print(f"Running fairness analysis for {DATASET}")
-print("="*80)
+    os.makedirs('outputs/fairness', exist_ok=True)
 
-# Derive age groups
-if DATASET == "GMSC":
-    age_years = derive_age_years_gmsc(df_test_real)
-else:
-    age_years = derive_age_years_homecredit(df_test_real)
+    # run fairness analysis for both datasets
+    datasets = [
+        {
+            'name': 'GMSC',
+            'test_path': 'data/gmsc_test.csv',
+            'age_col': 'age',
+            'models': {
+                'XGBoost': ('outputs/metrics/gmsc_proba_xgb_real.csv', 'outputs/metrics/gmsc_proba_xgb_synth.csv'),
+                'LogisticRegression': ('outputs/metrics/gmsc_proba_lr_real.csv', 'outputs/metrics/gmsc_proba_lr_synth.csv'),
+                'EBM': ('outputs/metrics/gmsc_proba_ebm_real.csv', 'outputs/metrics/gmsc_proba_ebm_synth.csv')
+            }
+        },
+        {
+            'name': 'HomeCredit',
+            'test_path': 'data/hc_test_ctgan_ready.csv',
+            'age_col': 'DAYS_BIRTH',
+            'models': {
+                'XGBoost': ('outputs/metrics/hc_proba_xgb_real.csv', 'outputs/metrics/hc_proba_xgb_synth.csv'),
+                'LogisticRegression': ('outputs/metrics/hc_proba_lr_real.csv', 'outputs/metrics/hc_proba_lr_synth.csv'),
+                'EBM': ('outputs/metrics/hc_proba_ebm_real.csv', 'outputs/metrics/hc_proba_ebm_synth.csv')
+            }
+        }
+    ]
 
-age_group = make_age_groups(age_years).astype(str)
+    all_summaries = []
 
-# Get predictions on REAL test set
-y_prob_real = predict_probabilities(xgb_real, X_test_real)
-y_prob_synth = predict_probabilities(xgb_synth, X_test_real)
+    for ds in datasets:
+        print(f"\nRunning fairness analysis for {ds['name']}...")
+        print("="*60)
 
-# Compute fairness metrics
-by_group_real, overall_real, summary_real = compute_group_fairness(
-    y_true=y_test_real, 
-    y_prob=y_prob_real, 
-    sensitive_series=age_group, 
-    threshold=THRESHOLD
-)
+        test_df = pd.read_csv(ds['test_path'])
 
-by_group_synth, overall_synth, summary_synth = compute_group_fairness(
-    y_true=y_test_real, 
-    y_prob=y_prob_synth, 
-    sensitive_series=age_group, 
-    threshold=THRESHOLD
-)
+        # derive age in years
+        if ds['age_col'] == 'DAYS_BIRTH':
+            # DAYS_BIRTH is negative in Home Credit
+            age_years = (-test_df['DAYS_BIRTH'] / 365.0)
+        else:
+            age_years = test_df[ds['age_col']]
 
-# Prepare tables
-by_group_real["TrainingData"] = "Real"
-by_group_synth["TrainingData"] = "Synthetic"
+        age_groups = make_age_groups(age_years).astype(str)
 
-fair_table = pd.concat([by_group_real, by_group_synth], ignore_index=True)
-fair_table.insert(0, "Dataset", DATASET)
+        # get true labels
+        target_col = 'TARGET' if 'TARGET' in test_df.columns else 'SeriousDlqin2yrs'
+        y_true = test_df[target_col].values
 
-# Save detailed fairness table
-if DATASET == "GMSC":
-    table_name = "table_5_10_fairness_gmsc_by_age.csv"
-else:
-    table_name = "table_5_11_fairness_homecredit_by_age.csv"
+        for model_name, (real_path, synth_path) in ds['models'].items():
+            print(f"\n  {model_name}")
 
-fair_table.to_csv(TABLES_DIR / table_name, index=False)
+            y_proba_real = pd.read_csv(real_path)['probability'].values
+            y_proba_synth = pd.read_csv(synth_path)['probability'].values
 
-# Save summary (DP/EO spreads)
-summary_df = pd.DataFrame([
-    {"Dataset": DATASET, "TrainingData": "Real", **summary_real},
-    {"Dataset": DATASET, "TrainingData": "Synthetic", **summary_synth},
-])
+            by_group_real, summary_real = compute_fairness(y_true, y_proba_real, age_groups)
+            by_group_synth, summary_synth = compute_fairness(y_true, y_proba_synth, age_groups)
 
-if DATASET == "GMSC":
-    summary_name = "table_5_12_fairness_summary_spreads_gmsc.csv"
-else:
-    summary_name = "table_5_12_fairness_summary_spreads_homecredit.csv"
+            by_group_real['TrainingData'] = 'Real'
+            by_group_synth['TrainingData'] = 'Synthetic'
+            by_group_real['Model'] = model_name
+            by_group_synth['Model'] = model_name
+            by_group_real['Dataset'] = ds['name']
+            by_group_synth['Dataset'] = ds['name']
 
-summary_df.to_csv(TABLES_DIR / summary_name, index=False)
+            combined = pd.concat([by_group_real, by_group_synth], ignore_index=True)
+            combined.to_csv(f"outputs/fairness/{ds['name'].lower()}_{model_name.lower()}_fairness.csv", index=False)
 
-print(f"\nSaved fairness tables:")
-print(f"  {TABLES_DIR / table_name}")
-print(f"  {TABLES_DIR / summary_name}")
+            all_summaries.append({'Dataset': ds['name'], 'Model': model_name, 'TrainingData': 'Real', **summary_real})
+            all_summaries.append({'Dataset': ds['name'], 'Model': model_name, 'TrainingData': 'Synthetic', **summary_synth})
 
-# Create figures
-if DATASET == "GMSC":
-    fig_sel_png = OUTPUT_DIR / "figure_5_11_selection_rate_by_age_gmsc.png"
-    fig_sel_pdf = OUTPUT_DIR / "figure_5_11_selection_rate_by_age_gmsc.pdf"
-    fig_tpr_png = OUTPUT_DIR / "figure_5_11_tpr_by_age_gmsc.png"
-    fig_tpr_pdf = OUTPUT_DIR / "figure_5_11_tpr_by_age_gmsc.pdf"
-else:
-    fig_sel_png = OUTPUT_DIR / "figure_5_12_selection_rate_by_age_homecredit.png"
-    fig_sel_pdf = OUTPUT_DIR / "figure_5_12_selection_rate_by_age_homecredit.pdf"
-    fig_tpr_png = OUTPUT_DIR / "figure_5_12_tpr_by_age_homecredit.png"
-    fig_tpr_pdf = OUTPUT_DIR / "figure_5_12_tpr_by_age_homecredit.pdf"
+            print(f"    Real      — DP diff: {summary_real['DP_Difference']:.4f}, EO diff: {summary_real['EO_Difference']:.4f}")
+            print(f"    Synthetic — DP diff: {summary_synth['DP_Difference']:.4f}, EO diff: {summary_synth['EO_Difference']:.4f}")
 
-# Selection rate (demographic parity proxy)
-plot_metric_bars(
-    by_group_real, by_group_synth,
-    metric_col="SelectionRate",
-    title=f"{DATASET}: Selection Rate by Age Group (Real vs Synthetic Trained)",
-    save_png=fig_sel_png,
-    save_pdf=fig_sel_pdf
-)
+    summary_df = pd.DataFrame(all_summaries)
+    summary_df.to_csv('outputs/fairness/fairness_summary.csv', index=False)
 
-# TPR (equal opportunity proxy)
-plot_metric_bars(
-    by_group_real, by_group_synth,
-    metric_col="TPR",
-    title=f"{DATASET}: True Positive Rate by Age Group (Real vs Synthetic Trained)",
-    save_png=fig_tpr_png,
-    save_pdf=fig_tpr_pdf
-)
-
-print(f"\nSaved fairness figures to {OUTPUT_DIR}")
-print("\nFairness analysis complete!")
-print("="*80)
+    print("\nSaved all fairness results to outputs/fairness/")
+    print("Done.")
