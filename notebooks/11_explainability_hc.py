@@ -1,239 +1,168 @@
-"""
-Explainability Analysis using XGBoost Feature Importance
-Compares feature importance rankings between real and synthetic trained models
-Generates Tables 5.13 and 5.14 for both GMSC and Home Credit
-"""
-
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-from scipy.stats import spearmanr
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from xgboost import XGBClassifier
+from interpret.glassbox import ExplainableBoostingClassifier
+from sklearn.model_selection import train_test_split
+import shap
+import json
+import os
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
-# Configuration
-DATASET = "GMSC"  # Change to "HomeCredit" for Home Credit analysis
-BASE_DIR = Path('/path/to/dissertation')  # UPDATE THIS
-TABLES_DIR = BASE_DIR / 'Chapter_5_Tables'
-FIGURES_DIR = BASE_DIR / 'Chapter_5_Figures'
+SEED = 42
 
-for d in [TABLES_DIR, FIGURES_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+def preprocess_gmsc(df):
+    df = df.copy()
+    if 'ID' in df.columns:
+        df = df.drop(columns=['ID'])
+    y = df['SeriousDlqin2yrs']
+    X = df.drop(columns=['SeriousDlqin2yrs'])
+    X.loc[X['age'] < 18, 'age'] = np.nan
+    X.loc[X['age'] > 100, 'age'] = np.nan
+    X.loc[X['MonthlyIncome'] < 0, 'MonthlyIncome'] = np.nan
+    X.loc[X['DebtRatio'] < 0, 'DebtRatio'] = np.nan
+    X.loc[X['DebtRatio'] > 10, 'DebtRatio'] = 10
+    X.loc[X['RevolvingUtilizationOfUnsecuredLines'] < 0, 'RevolvingUtilizationOfUnsecuredLines'] = np.nan
+    X.loc[X['RevolvingUtilizationOfUnsecuredLines'] > 2, 'RevolvingUtilizationOfUnsecuredLines'] = 2
+    X = X.fillna(X.median())
+    X = X.replace([np.inf, -np.inf], np.nan).fillna(X.median())
+    return X, y
 
-print("="*80)
-print(f"EXPLAINABILITY ANALYSIS: {DATASET}")
-print("="*80)
+def preprocess_hc(train_df, test_df):
+    categorical_cols = [c for c in train_df.columns if train_df[c].dtype == 'object' and c != 'TARGET']
+    train_proc = train_df.copy()
+    test_proc = test_df.copy()
+    for col in categorical_cols:
+        le = LabelEncoder()
+        train_proc[col] = le.fit_transform(train_proc[col].astype(str))
+        test_proc[col] = test_proc[col].apply(lambda x: x if x in le.classes_ else 'Unknown')
+        if 'Unknown' not in le.classes_:
+            le.classes_ = np.append(le.classes_, 'Unknown')
+        test_proc[col] = le.transform(test_proc[col].astype(str))
+    X_train = train_proc.drop('TARGET', axis=1)
+    y_train = train_proc['TARGET']
+    X_test = test_proc.drop('TARGET', axis=1)
+    y_test = test_proc['TARGET']
+    return X_train, y_train, X_test, y_test
 
-# Required inputs (from model training):
-# - xgb_real: XGBoost model trained on real data
-# - xgb_synth: XGBoost model trained on synthetic data
-# - feature_names: list of feature names used in training
+def get_shap_importance(model, X, top_n=10):
+    # sample 500 rows to keep SHAP fast
+    sample = X.sample(n=min(500, len(X)), random_state=SEED)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(sample)
+    if isinstance(shap_values, list):
+        shap_values = shap_values[1]
+    importance = pd.DataFrame({
+        'feature': X.columns,
+        'mean_abs_shap': np.abs(shap_values).mean(axis=0)
+    }).sort_values('mean_abs_shap', ascending=False).head(top_n)
+    return importance.to_dict(orient='records')
 
-# Extract feature importance (XGBoost gain)
-def get_feature_importance(model, feature_names):
-    """Extract XGBoost gain importance"""
-    importance_dict = model.get_booster().get_score(importance_type='gain')
-    
-    # Map f0, f1, f2... back to feature names
-    importance_data = []
-    for i, feature_name in enumerate(feature_names):
-        xgb_key = f'f{i}'
-        importance_score = importance_dict.get(xgb_key, 0.0)
-        importance_data.append({
-            'Feature': feature_name,
-            'Importance': importance_score
-        })
-    
-    df = pd.DataFrame(importance_data)
-    df = df.sort_values('Importance', ascending=False).reset_index(drop=True)
-    df['Rank'] = range(1, len(df) + 1)
-    
-    return df
+def get_ebm_importance(model, top_n=10):
+    # use term_names_ which matches the length of term_importances()
+    imp_df = pd.DataFrame({
+        'feature': model.term_names_,
+        'mean_abs_shap': model.term_importances()
+    }).sort_values('mean_abs_shap', ascending=False).head(top_n)
+    return imp_df.to_dict(orient='records')
 
-# Get importance from both models
-importance_real = get_feature_importance(xgb_real, feature_names)
-importance_synth = get_feature_importance(xgb_synth, feature_names)
+def save_shap(data, filename):
+    os.makedirs('outputs/shap', exist_ok=True)
+    with open(f'outputs/shap/{filename}', 'w') as f:
+        json.dump(data, f, indent=2)
 
-print(f"\nTop 10 Features - Real Model:")
-print(importance_real.head(10)[['Rank', 'Feature', 'Importance']].to_string(index=False))
+if __name__ == "__main__":
 
-print(f"\nTop 10 Features - Synthetic Model:")
-print(importance_synth.head(10)[['Rank', 'Feature', 'Importance']].to_string(index=False))
+    print("Running SHAP explainability analysis...")
 
-# ===== TABLE 5.13: SPEARMAN RANK CORRELATION =====
+    # GMSC
+    print("\nGMSC dataset...")
+    gmsc_real = pd.read_csv('data/gmsc_cleaned.csv')
+    gmsc_synth = pd.read_csv('data/gmsc_synthetic.csv')
 
-# Merge and calculate rank correlation
-merged = pd.merge(
-    importance_real[['Feature', 'Rank', 'Importance']],
-    importance_synth[['Feature', 'Rank', 'Importance']],
-    on='Feature',
-    suffixes=('_Real', '_Synth')
-)
+    X_real, y_real = preprocess_gmsc(gmsc_real)
+    X_synth, y_synth = preprocess_gmsc(gmsc_synth)
 
-rho, p_value = spearmanr(merged['Rank_Real'], merged['Rank_Synth'])
+    common_cols = list(set(X_real.columns) & set(X_synth.columns))
+    X_real = X_real[common_cols]
+    X_synth = X_synth[common_cols]
 
-print(f"\n{'='*80}")
-print("FEATURE IMPORTANCE ALIGNMENT")
-print('='*80)
-print(f"Spearman's ρ: {rho:.4f}")
-print(f"P-value: {p_value:.6f}")
+    X_real_train, X_real_test, y_real_train, y_real_test = train_test_split(X_real, y_real, test_size=0.2, stratify=y_real, random_state=SEED)
+    X_synth_train, X_synth_test, y_synth_train, y_synth_test = train_test_split(X_synth, y_synth, test_size=0.2, stratify=y_synth, random_state=SEED)
 
-if p_value < 0.05:
-    if rho > 0.7:
-        print("  Strong significant correlation - rankings well preserved")
-    elif rho > 0.5:
-        print("⚠ Moderate significant correlation - some ranking shifts")
-    else:
-        print("✗ Weak correlation - substantial ranking changes")
-else:
-    print("⚠ Not statistically significant (p >= 0.05)")
+    imbalance = (y_real_train == 0).sum() / (y_real_train == 1).sum()
 
-# Save Table 5.13
-if DATASET == "GMSC":
-    table_513 = pd.DataFrame([{
-        'Dataset': 'GMSC',
-        'Model': 'XGBoost',
-        'Ranking_Method': 'Gain importance',
-        'Spearman_rho': rho,
-        'p_value': p_value
-    }])
-    table_513_path = TABLES_DIR / 'table_5_13_importance_rank_spearman_gmsc_xgb.csv'
-else:
-    table_513 = pd.DataFrame([{
-        'Dataset': 'HomeCredit',
-        'Model': 'XGBoost',
-        'Spearman_rho_rank_alignment': rho,
-        'p_value': p_value,
-        'n_features': len(feature_names)
-    }])
-    table_513_path = TABLES_DIR / 'table_5_13_importance_rank_spearman_homecredit_xgb.csv'
+    xgb_params = {'n_estimators': 100, 'max_depth': 6, 'learning_rate': 0.1, 'subsample': 0.8, 'colsample_bytree': 0.8, 'scale_pos_weight': imbalance, 'tree_method': 'hist', 'random_state': SEED}
 
-table_513.to_csv(table_513_path, index=False)
-print(f"\n  Saved: {table_513_path}")
+    print("  Training XGBoost (real)...")
+    xgb_real = XGBClassifier(**xgb_params)
+    xgb_real.fit(X_real_train, y_real_train)
 
-# ===== TABLE 5.14: RANK SHIFT ANALYSIS =====
+    print("  Training XGBoost (synthetic)...")
+    xgb_synth = XGBClassifier(**xgb_params)
+    xgb_synth.fit(X_synth_train, y_synth_train)
 
-# Calculate rank shifts
-rank_shift = merged.copy()
-rank_shift['Rank_Shift'] = rank_shift['Rank_Synth'] - rank_shift['Rank_Real']
+    print("  Computing SHAP values for XGBoost...")
+    save_shap(get_shap_importance(xgb_real, X_real_test), 'gmsc_xgboost_real.json')
+    save_shap(get_shap_importance(xgb_synth, X_real_test), 'gmsc_xgboost_synth.json')
 
-# Sort by absolute rank shift to show biggest changes
-rank_shift['Abs_Shift'] = rank_shift['Rank_Shift'].abs()
-rank_shift = rank_shift.sort_values('Abs_Shift', ascending=False)
+    print("  Training EBM (real)...")
+    ebm_real = ExplainableBoostingClassifier(random_state=SEED)
+    ebm_real.fit(X_real_train, y_real_train)
 
-# Show top 10 largest shifts
-print(f"\n{'='*80}")
-print("TOP 10 LARGEST RANK SHIFTS")
-print('='*80)
-top_shifts = rank_shift.head(10)
-print(top_shifts[['Feature', 'Rank_Real', 'Rank_Synth', 'Rank_Shift']].to_string(index=False))
+    print("  Training EBM (synthetic)...")
+    ebm_synth = ExplainableBoostingClassifier(random_state=SEED)
+    ebm_synth.fit(X_synth_train, y_synth_train)
 
-# Save Table 5.14
-if DATASET == "GMSC":
-    table_514 = rank_shift[[
-        'Feature', 'Rank_Real', 'Rank_Synth', 'Rank_Shift', 
-        'Importance_Real', 'Importance_Synth'
-    ]].copy()
-    table_514_path = TABLES_DIR / 'table_5_14_rank_shift_gmsc_xgb.csv'
-else:
-    table_514 = rank_shift[[
-        'Feature', 'Importance_Real', 'Importance_Synth',
-        'Rank_Real', 'Rank_Synth', 'Rank_Shift'
-    ]].copy()
-    table_514.columns = [
-        'Feature', 'Gain_Real', 'Gain_Synth',
-        'Rank_Real', 'Rank_Synth', 'Rank_Shift_(Synth-Real)'
-    ]
-    table_514_path = TABLES_DIR / 'table_5_14_rank_shift_homecredit_xgb.csv'
+    print("  Computing EBM importances...")
+    save_shap(get_ebm_importance(ebm_real), 'gmsc_ebm_real.json')
+    save_shap(get_ebm_importance(ebm_synth), 'gmsc_ebm_synth.json')
 
-# Save first 25 features (or all if fewer)
-table_514.head(25).to_csv(table_514_path, index=False)
-print(f"  Saved: {table_514_path}")
+    print("  GMSC done.")
 
-# ===== FIGURE: FEATURE IMPORTANCE COMPARISON =====
+    # Home Credit
+    print("\nHome Credit dataset...")
+    train_real = pd.read_csv('data/hc_train_ctgan_ready.csv')
+    test_real = pd.read_csv('data/hc_test_ctgan_ready.csv')
+    train_synth = pd.read_csv('data/hc_synthetic.csv')
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    X_hc_train_real, y_hc_train_real, X_hc_test, y_hc_test = preprocess_hc(train_real, test_real)
+    X_hc_train_synth, y_hc_train_synth, _, _ = preprocess_hc(train_synth, test_real)
 
-# Top 15 features from each model
-top_15_real = importance_real.head(15)
-top_15_synth = importance_synth.head(15)
+    common_hc = [c for c in X_hc_train_real.columns if c in X_hc_train_synth.columns]
+    X_hc_train_real = X_hc_train_real[common_hc]
+    X_hc_train_synth = X_hc_train_synth[common_hc]
+    X_hc_test = X_hc_test[common_hc]
 
-# Real model
-y_pos_real = np.arange(len(top_15_real))
-ax1.barh(y_pos_real, top_15_real['Importance'].values, color='steelblue')
-ax1.set_yticks(y_pos_real)
-ax1.set_yticklabels(top_15_real['Feature'].values)
-ax1.set_xlabel('XGBoost Gain Importance', fontsize=12)
-ax1.set_title('Top 15 Features - Real Model', fontsize=14, fontweight='bold')
-ax1.invert_yaxis()
-ax1.grid(alpha=0.3, axis='x')
+    imbalance_hc = (y_hc_train_real == 0).sum() / (y_hc_train_real == 1).sum()
 
-# Synthetic model
-y_pos_synth = np.arange(len(top_15_synth))
-ax2.barh(y_pos_synth, top_15_synth['Importance'].values, color='coral')
-ax2.set_yticks(y_pos_synth)
-ax2.set_yticklabels(top_15_synth['Feature'].values)
-ax2.set_xlabel('XGBoost Gain Importance', fontsize=12)
-ax2.set_title('Top 15 Features - Synthetic Model', fontsize=14, fontweight='bold')
-ax2.invert_yaxis()
-ax2.grid(alpha=0.3, axis='x')
+    print("  Training XGBoost (real)...")
+    xgb_hc_real = XGBClassifier(n_estimators=300, max_depth=6, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, scale_pos_weight=imbalance_hc, tree_method='hist', random_state=SEED)
+    xgb_hc_real.fit(X_hc_train_real, y_hc_train_real, verbose=False)
 
-plt.suptitle(f'{DATASET}: Feature Importance Comparison (Real vs Synthetic Trained)',
-             fontsize=16, fontweight='bold', y=1.02)
-plt.tight_layout()
+    print("  Training XGBoost (synthetic)...")
+    xgb_hc_synth = XGBClassifier(n_estimators=300, max_depth=6, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, scale_pos_weight=imbalance_hc, tree_method='hist', random_state=SEED)
+    xgb_hc_synth.fit(X_hc_train_synth, y_hc_train_synth, verbose=False)
 
-if DATASET == "GMSC":
-    fig_path = FIGURES_DIR / 'figure_5_13_feature_importance_gmsc_xgb.png'
-else:
-    fig_path = FIGURES_DIR / 'figure_5_14_feature_importance_homecredit_xgb.png'
+    print("  Computing SHAP values for XGBoost...")
+    save_shap(get_shap_importance(xgb_hc_real, X_hc_test), 'hc_xgboost_real.json')
+    save_shap(get_shap_importance(xgb_hc_synth, X_hc_test), 'hc_xgboost_synth.json')
 
-plt.savefig(fig_path, dpi=300, bbox_inches='tight')
-plt.savefig(fig_path.with_suffix('.pdf'), bbox_inches='tight')
-plt.close()
+    print("  Training EBM (real)...")
+    ebm_hc_real = ExplainableBoostingClassifier(random_state=SEED, max_bins=32)
+    ebm_hc_real.fit(X_hc_train_real, y_hc_train_real)
 
-print(f"  Saved: {fig_path}")
+    print("  Training EBM (synthetic)...")
+    ebm_hc_synth = ExplainableBoostingClassifier(random_state=SEED, max_bins=32)
+    ebm_hc_synth.fit(X_hc_train_synth, y_hc_train_synth)
 
-# ===== RANK SHIFT VISUALIZATION =====
+    print("  Computing EBM importances...")
+    save_shap(get_ebm_importance(ebm_hc_real), 'hc_ebm_real.json')
+    save_shap(get_ebm_importance(ebm_hc_synth), 'hc_ebm_synth.json')
 
-# Show features with largest rank changes
-top_shifts_viz = rank_shift.head(15)
+    print("  Home Credit done.")
 
-fig, ax = plt.subplots(figsize=(12, 8))
-
-features = top_shifts_viz['Feature'].values
-shifts = top_shifts_viz['Rank_Shift'].values
-colors = ['red' if s > 0 else 'green' for s in shifts]
-
-y_pos = np.arange(len(features))
-ax.barh(y_pos, shifts, color=colors, alpha=0.7)
-ax.set_yticks(y_pos)
-ax.set_yticklabels(features)
-ax.set_xlabel('Rank Shift (Synth - Real)', fontsize=12)
-ax.set_title(f'{DATASET}: Feature Rank Changes\n(Red = dropped in importance, Green = gained importance)',
-             fontsize=14, fontweight='bold')
-ax.axvline(x=0, color='black', linestyle='--', linewidth=1)
-ax.invert_yaxis()
-ax.grid(alpha=0.3, axis='x')
-
-plt.tight_layout()
-
-if DATASET == "GMSC":
-    shift_fig_path = FIGURES_DIR / 'figure_5_13b_rank_shift_gmsc_xgb.png'
-else:
-    shift_fig_path = FIGURES_DIR / 'figure_5_14b_rank_shift_homecredit_xgb.png'
-
-plt.savefig(shift_fig_path, dpi=300, bbox_inches='tight')
-plt.savefig(shift_fig_path.with_suffix('.pdf'), bbox_inches='tight')
-plt.close()
-
-print(f"  Saved: {shift_fig_path}")
-
-print("\n" + "="*80)
-print("EXPLAINABILITY ANALYSIS COMPLETE")
-print("="*80)
-print(f"\nGenerated:")
-print(f"  - Table 5.13: Spearman rank correlation")
-print(f"  - Table 5.14: Feature rank shifts")
-print(f"  - Figures: Feature importance comparison + rank shifts")
+    print("\nAll SHAP outputs saved to outputs/shap/")
+    print("Done.")

@@ -1,0 +1,42 @@
+[
+  {
+    "feature": "RevolvingUtilizationOfUnsecuredLines",
+    "mean_abs_shap": 0.5658397104085283
+  },
+  {
+    "feature": "NumberOfTime30-59DaysPastDueNotWorse",
+    "mean_abs_shap": 0.23130428077029364
+  },
+  {
+    "feature": "age",
+    "mean_abs_shap": 0.20759134620412456
+  },
+  {
+    "feature": "NumberOfTimes90DaysLate",
+    "mean_abs_shap": 0.1506065969574987
+  },
+  {
+    "feature": "NumberOfOpenCreditLinesAndLoans",
+    "mean_abs_shap": 0.13966474217591163
+  },
+  {
+    "feature": "MonthlyIncome",
+    "mean_abs_shap": 0.10897354353677112
+  },
+  {
+    "feature": "DebtRatio",
+    "mean_abs_shap": 0.10864124667320521
+  },
+  {
+    "feature": "NumberRealEstateLoansOrLines",
+    "mean_abs_shap": 0.10366382518124902
+  },
+  {
+    "feature": "NumberOfTime60-89DaysPastDueNotWorse",
+    "mean_abs_shap": 0.08978077042554686
+  },
+  {
+    "feature": "NumberOfTime30-59DaysPastDueNotWorse & RevolvingUtilizationOfUnsecuredLines",
+    "mean_abs_shap": 0.06738666612730164
+  }
+]

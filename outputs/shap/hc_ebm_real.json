@@ -1,0 +1,42 @@
+[
+  {
+    "feature": "AMT_GOODS_PRICE",
+    "mean_abs_shap": 0.5477418395404012
+  },
+  {
+    "feature": "AMT_CREDIT",
+    "mean_abs_shap": 0.44526674818301004
+  },
+  {
+    "feature": "EXT_SOURCE_2",
+    "mean_abs_shap": 0.32910420879533264
+  },
+  {
+    "feature": "EXT_SOURCE_3",
+    "mean_abs_shap": 0.3150448981354895
+  },
+  {
+    "feature": "EXT_SOURCE_1",
+    "mean_abs_shap": 0.16322155011263764
+  },
+  {
+    "feature": "AMT_ANNUITY",
+    "mean_abs_shap": 0.13692569136512625
+  },
+  {
+    "feature": "CODE_GENDER",
+    "mean_abs_shap": 0.13285091545051367
+  },
+  {
+    "feature": "DAYS_BIRTH",
+    "mean_abs_shap": 0.12187996944605513
+  },
+  {
+    "feature": "AMT_CREDIT_SUM_DEBT_MEAN",
+    "mean_abs_shap": 0.11570697843626541
+  },
+  {
+    "feature": "DAYS_EMPLOYED",
+    "mean_abs_shap": 0.11510860152002411
+  }
+]

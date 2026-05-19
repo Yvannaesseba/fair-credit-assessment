@@ -1,0 +1,42 @@
+[
+  {
+    "feature": "EXT_SOURCE_2",
+    "mean_abs_shap": 0.3795973062515259
+  },
+  {
+    "feature": "EXT_SOURCE_3",
+    "mean_abs_shap": 0.3689001500606537
+  },
+  {
+    "feature": "AMT_GOODS_PRICE",
+    "mean_abs_shap": 0.20130734145641327
+  },
+  {
+    "feature": "AMT_CREDIT",
+    "mean_abs_shap": 0.16629765927791595
+  },
+  {
+    "feature": "EXT_SOURCE_1",
+    "mean_abs_shap": 0.14613841474056244
+  },
+  {
+    "feature": "CODE_GENDER",
+    "mean_abs_shap": 0.11997753381729126
+  },
+  {
+    "feature": "NAME_EDUCATION_TYPE",
+    "mean_abs_shap": 0.11234413087368011
+  },
+  {
+    "feature": "AMT_ANNUITY",
+    "mean_abs_shap": 0.10994162410497665
+  },
+  {
+    "feature": "DAYS_EMPLOYED",
+    "mean_abs_shap": 0.10525254160165787
+  },
+  {
+    "feature": "DAYS_BIRTH",
+    "mean_abs_shap": 0.10199982672929764
+  }
+]

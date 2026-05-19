@@ -1,0 +1,42 @@
+[
+  {
+    "feature": "EXT_SOURCE_2",
+    "mean_abs_shap": 0.8797441124916077
+  },
+  {
+    "feature": "AMT_ANNUITY",
+    "mean_abs_shap": 0.207908496260643
+  },
+  {
+    "feature": "DAYS_EMPLOYED",
+    "mean_abs_shap": 0.17448681592941284
+  },
+  {
+    "feature": "DAYS_CREDIT_MEAN",
+    "mean_abs_shap": 0.17107361555099487
+  },
+  {
+    "feature": "DAYS_CREDIT_MAX",
+    "mean_abs_shap": 0.14881059527397156
+  },
+  {
+    "feature": "AMT_CREDIT_SUM_MEAN",
+    "mean_abs_shap": 0.13876020908355713
+  },
+  {
+    "feature": "NAME_EDUCATION_TYPE",
+    "mean_abs_shap": 0.1351642608642578
+  },
+  {
+    "feature": "YEARS_BEGINEXPLUATATION_AVG",
+    "mean_abs_shap": 0.134153813123703
+  },
+  {
+    "feature": "NAME_CONTRACT_TYPE",
+    "mean_abs_shap": 0.11252789199352264
+  },
+  {
+    "feature": "DAYS_CREDIT_UPDATE_MEAN",
+    "mean_abs_shap": 0.10523910075426102
+  }
+]
