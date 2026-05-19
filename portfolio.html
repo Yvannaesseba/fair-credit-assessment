@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Fair Credit Assessment</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0c1525;--navy2:#111c2e;--navy3:#162035;--card:#1a2540;--border:#243050;
+  --real:#34d399;--synth:#fb923c;--purple:#a78bfa;
+  --text:#e8edf8;--muted:#64748b;--muted2:#94a3b8;--radius:14px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh}
+header{background:var(--navy2);border-bottom:1px solid var(--border);padding:0 48px;height:68px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{font-family:'DM Serif Display',serif;font-size:19px}.logo em{color:var(--real);font-style:normal}
+.hbadges{display:flex;gap:10px}
+.hb{font-size:11px;font-family:'DM Mono',monospace;padding:4px 10px;border-radius:20px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--real)}
+
+/* HERO */
+.hero{background:linear-gradient(135deg,var(--navy2) 0%,var(--navy3) 100%);padding:60px 48px 56px;position:relative;overflow:hidden;border-bottom:1px solid var(--border)}
+.hero::before{content:'';position:absolute;right:-100px;top:-100px;width:500px;height:500px;background:radial-gradient(circle,rgba(52,211,153,0.06) 0%,transparent 65%);pointer-events:none}
+.hero::after{content:'';position:absolute;left:-80px;bottom:-80px;width:400px;height:400px;background:radial-gradient(circle,rgba(167,139,250,0.05) 0%,transparent 65%);pointer-events:none}
+.hero-tag{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--real);margin-bottom:1.2rem}
+.hero h1{font-family:'DM Serif Display',serif;font-size:clamp(2rem,4.5vw,3.4rem);line-height:1.12;max-width:680px;margin-bottom:1rem}
+.hero h1 em{color:var(--real);font-style:italic}
+.hero p{color:var(--muted2);font-size:15px;max-width:600px;line-height:1.75;margin-bottom:2rem}
+.hero-stats{display:flex;gap:36px;flex-wrap:wrap}
+.hs{display:flex;flex-direction:column;gap:3px}
+.hs-val{font-family:'DM Serif Display',serif;font-size:26px;color:var(--real)}
+.hs-label{font-size:11px;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted)}
+
+/* STORY STRIP */
+.story{background:var(--navy2);border-bottom:1px solid var(--border);padding:32px 48px}
+.story-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:1280px;margin:0 auto}
+.story-item{padding-left:16px;border-left:2px solid var(--border)}
+.story-item.s1{border-color:var(--real)}
+.story-item.s2{border-color:var(--synth)}
+.story-item.s3{border-color:var(--purple)}
+.story-label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:6px}
+.story-label.s1{color:var(--real)}.story-label.s2{color:var(--synth)}.story-label.s3{color:var(--purple)}
+.story-text{font-size:13px;color:var(--muted2);line-height:1.65}
+
+/* CONTROLS */
+.controls{padding:24px 48px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end;background:var(--navy2);border-bottom:1px solid var(--border)}
+.cg label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:8px}
+.trow{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tbtn{padding:8px 18px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--muted2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all 0.18s;white-space:nowrap}
+.tbtn:last-child{border-right:none}
+.tbtn:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+.tbtn.on{background:var(--real);color:#0c1525;font-weight:600}
+
+/* MAIN */
+.main{max-width:1280px;margin:0 auto;padding:40px 48px}
+.sh{margin:0 0 20px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.sh h2{font-family:'DM Serif Display',serif;font-size:1.5rem}
+.sh p{font-size:13px;color:var(--muted2)}
+hr.div{border:none;border-top:1px solid var(--border);margin:40px 0}
+.insight{background:rgba(52,211,153,0.05);border-left:3px solid var(--real);border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:24px;font-size:13.5px;line-height:1.65}
+.insight strong{color:var(--real)}
+.insight.w{background:rgba(251,146,60,0.05);border-color:var(--synth)}.insight.w strong{color:var(--synth)}
+.insight.i{background:rgba(167,139,250,0.05);border-color:var(--purple)}.insight.i strong{color:var(--purple)}
+
+/* SUMMARY CARDS */
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:32px}
+.sc{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;transition:transform 0.18s,border-color 0.18s}
+.sc:hover{transform:translateY(-2px);border-color:rgba(52,211,153,0.3)}
+.sc::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--real)}
+.sc.t2::after{background:var(--synth)}.sc.t3::after{background:var(--purple)}.sc.t4::after{background:var(--muted)}
+.sl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.sv{font-family:'DM Serif Display',serif;font-size:2rem;line-height:1}
+.ss{font-size:12px;color:var(--muted2);margin-top:5px}
+.badge{display:inline-block;font-family:'DM Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;margin-top:7px}
+.up{background:rgba(52,211,153,0.1);color:var(--real)}.dn{background:rgba(251,146,60,0.1);color:var(--synth)}
+
+/* CHARTS */
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
+.cc{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+.ct{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
+.leg{display:flex;gap:16px;margin-bottom:12px}
+.li{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted2)}
+.ld{width:8px;height:8px;border-radius:50%}
+
+/* SHAP */
+.shgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
+.shcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+.shlabel{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:14px}
+.shlabel.r{color:var(--real)}.shlabel.s{color:var(--synth)}
+.shr{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.shf{font-family:'DM Mono',monospace;font-size:11px;color:var(--text);width:190px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shbw{flex:1;background:var(--navy3);border-radius:3px;height:5px;overflow:hidden}
+.shb{height:100%;border-radius:3px;transition:width 0.5s ease}
+.shb.r{background:var(--real)}.shb.s{background:var(--synth)}
+.shv{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);width:36px;text-align:right}
+
+/* FAIRNESS */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}
+.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
+.fcmp{display:flex;align-items:center;gap:16px;margin-top:10px}
+.fval{font-family:'DM Serif Display',serif;font-size:2rem}
+.fval.r{color:var(--real)}.fval.s{color:var(--synth)}
+.farr{color:var(--muted);font-size:18px}
+.fnote{font-size:12px;color:var(--muted2);margin-top:8px;line-height:1.5}
+
+/* TABLE */
+.tblw{overflow-x:auto;border-radius:var(--radius);margin-bottom:32px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--navy3);color:var(--muted2);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:12px 16px;text-align:left;border-bottom:1px solid var(--border)}
+td{padding:11px 16px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:12px}
+tr:hover td{background:rgba(255,255,255,0.02)}
+.dr{color:var(--real)}.ds{color:var(--synth)}
+
+/* FINDINGS */
+.findgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:40px}
+.fnd{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px;transition:all 0.18s}
+.fnd:hover{border-color:rgba(52,211,153,0.3);transform:translateY(-2px)}
+.fnum{font-family:'DM Serif Display',serif;font-size:3rem;color:var(--border);line-height:1;margin-bottom:10px}
+.ftitle{font-size:14px;font-weight:600;margin-bottom:8px}
+.ftext{font-size:12.5px;color:var(--muted2);line-height:1.6}
+
+/* TOOLTIP */
+.tip{position:relative;display:inline-block;border-bottom:1px dashed var(--muted);cursor:help}
+.tip:hover::after{content:attr(data-tip);position:absolute;bottom:125%;left:50%;transform:translateX(-50%);background:var(--navy3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;width:220px;z-index:10;white-space:normal;text-align:left}
+
+footer{border-top:1px solid var(--border);padding:24px 48px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+footer p{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)}
+footer a{color:var(--real);text-decoration:none}
+footer a:hover{text-decoration:underline}
+
+@media(max-width:900px){
+  header,.hero,.story,.controls,footer{padding-left:20px;padding-right:20px}
+  .main{padding:28px 20px}
+  .sg,.cgrid,.shgrid,.fgrid,.findgrid,.story-grid{grid-template-columns:1fr}
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fu{animation:fadeUp 0.35s ease both}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Fair<em>Credit</em> Assessment</div>
+  <div class="hbadges">
+    <span class="hb">GMSC · Home Credit</span>
+    <span class="hb">XGBoost · LR · EBM</span>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="hero-tag">Empirical Study · Synthetic Data · Credit Scoring</div>
+  <h1>Can <em>synthetic data</em> replace real credit data?</h1>
+  <p>Banks use your financial history to decide whether to approve loans. But that data is sensitive, legally restricted, and hard to share. This project tests whether AI-generated <em>fake</em> data can train credit scoring models just as effectively — without exposing anyone's real information.</p>
+  <div class="hero-stats">
+    <div class="hs"><span class="hs-val">457K</span><span class="hs-label">Real records used</span></div>
+    <div class="hs"><span class="hs-val">3</span><span class="hs-label">Models tested</span></div>
+    <div class="hs"><span class="hs-val">3</span><span class="hs-label">Evaluation lenses</span></div>
+    <div class="hs"><span class="hs-val">300</span><span class="hs-label">CTGAN epochs</span></div>
+  </div>
+</div>
+
+<!-- STORY STRIP -->
+<div class="story">
+  <div class="story-grid">
+    <div class="story-item s1">
+      <div class="story-label s1">The Problem</div>
+      <div class="story-text">Credit scoring models need large, high-quality datasets — but privacy laws, competitive sensitivity, and regulation make real consumer data hard to access. Synthetic data is a proposed solution, but most research only checks if it predicts well, ignoring whether it's fair and explainable.</div>
+    </div>
+    <div class="story-item s2">
+      <div class="story-label s2">The Method</div>
+      <div class="story-text">A GAN-based model called CTGAN was trained on real credit data to generate artificial records that statistically mimic the real thing. Credit scoring models were then trained on this synthetic data and tested on real data — a framework called TSTR (Train-Synthetic-Test-Real).</div>
+    </div>
+    <div class="story-item s3">
+      <div class="story-label s3">The Verdict</div>
+      <div class="story-text">Synthetic data can preserve predictive accuracy — especially on simpler datasets. But its impact on fairness and explainability is unpredictable and depends heavily on which model you use and how complex the data is. It is not a plug-and-play replacement.</div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="cg">
+    <label>Dataset</label>
+    <div class="trow">
+      <button class="tbtn on" onclick="setDS('gmsc',this)">Give Me Some Credit</button>
+      <button class="tbtn" onclick="setDS('hc',this)">Home Credit</button>
+    </div>
+  </div>
+  <div class="cg">
+    <label>Model</label>
+    <div class="trow">
+      <button class="tbtn on" onclick="setM('XGBoost',this)">XGBoost</button>
+      <button class="tbtn" onclick="setM('LogisticRegression',this)">Logistic Reg.</button>
+      <button class="tbtn" onclick="setM('EBM',this)">EBM</button>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="sg" id="sg"></div>
+
+  <hr class="div" style="margin-top:0">
+  <div class="sh"><h2>ROC Curves</h2><p>How well each model separates defaulters from non-defaulters — higher and further left is better</p></div>
+  <div class="leg">
+    <div class="li"><div class="ld" style="background:var(--real)"></div>Trained on real data</div>
+    <div class="li"><div class="ld" style="background:var(--synth)"></div>Trained on synthetic data</div>
+    <div class="li"><div class="ld" style="background:var(--border)"></div>Random baseline (no skill)</div>
+  </div>
+  <div class="insight" id="iROC"></div>
+  <div class="cgrid">
+    <div class="cc"><div class="ct" id="rocTitle">ROC Curve</div><canvas id="rocChart" height="260"></canvas></div>
+    <div class="cc"><div class="ct">AUC comparison — all three models</div><canvas id="barChart" height="260"></canvas></div>
+  </div>
+
+  <hr class="div">
+  <div class="sh"><h2>Feature Importance</h2><p>Which factors drive each model's predictions — and do real and synthetic models agree?</p></div>
+  <div class="insight i" id="iSHAP"></div>
+  <div class="shgrid" id="shgrid"></div>
+
+  <hr class="div">
+  <div class="sh">
+    <h2>Fairness by Age Group</h2>
+    <p>Are predictions equally reliable across Young (≤35), Middle (36–55), and Senior (56+) applicants?</p>
+  </div>
+  <div class="insight w" id="iFair"></div>
+  <div class="fgrid">
+    <div class="fcard">
+      <div class="ct"><span class="tip" data-tip="Demographic Parity Difference measures how differently the model selects applicants across age groups. A score of 0 means all age groups are equally likely to be approved. Higher = more unequal treatment.">Demographic Parity Difference ⓘ</span></div>
+      <div style="font-size:12px;color:var(--muted2)">Spread in approval rates across age groups. Lower = fairer.</div>
+      <div class="fcmp">
+        <div><div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px">REAL</div><div class="fval r" id="dpR">—</div></div>
+        <div class="farr">→</div>
+        <div><div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px">SYNTHETIC</div><div class="fval s" id="dpS">—</div></div>
+      </div>
+      <div class="fnote" id="dpN"></div>
+    </div>
+    <div class="fcard">
+      <div class="ct"><span class="tip" data-tip="Equal Opportunity Difference measures how consistently the model correctly identifies actual defaulters across age groups. A score of 0 means all age groups get equally fair treatment. Higher = more unequal.">Equal Opportunity Difference ⓘ</span></div>
+      <div style="font-size:12px;color:var(--muted2)">Spread in correct default detection across age groups. Lower = fairer.</div>
+      <div class="fcmp">
+        <div><div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px">REAL</div><div class="fval r" id="eoR">—</div></div>
+        <div class="farr">→</div>
+        <div><div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px">SYNTHETIC</div><div class="fval s" id="eoS">—</div></div>
+      </div>
+      <div class="fnote" id="eoN"></div>
+    </div>
+  </div>
+  <div class="cc" style="margin-bottom:32px"><div class="ct">Fairness gaps — all models, current dataset</div><canvas id="fairChart" height="200"></canvas></div>
+
+  <hr class="div">
+  <div class="sh"><h2>Full Results</h2><p>Complete performance table for the selected dataset</p></div>
+  <div class="tblw"><table id="tbl"></table></div>
+
+  <hr class="div">
+  <div class="sh"><h2>Key Findings</h2></div>
+  <div class="findgrid">
+    <div class="fnd"><div class="fnum">01</div><div class="ftitle">Accuracy drops with complexity</div><div class="ftext">On the simpler GMSC dataset (11 features), synthetic-trained models stay competitive. On the complex Home Credit dataset (45 features), XGBoost drops from AUC 0.752 to 0.681. The more complex the data, the harder it is to fake convincingly.</div></div>
+    <div class="fnd"><div class="fnum">02</div><div class="ftitle">Logistic Regression surprises</div><div class="ftext">On GMSC, the model trained on synthetic data actually outperforms the real-data model (AUC 0.857 vs 0.833). Synthetic data may remove statistical noise that confuses simpler linear models — a genuinely counterintuitive finding.</div></div>
+    <div class="fnd"><div class="fnum">03</div><div class="ftitle">Fairness is unpredictable</div><div class="ftext">On Home Credit, XGBoost and Logistic Regression become fairer when trained on synthetic data. But EBM becomes less fair. There is no consistent direction — which model you use determines whether synthetic data helps or hurts fairness.</div></div>
+    <div class="fnd"><div class="fnum">04</div><div class="ftitle">Models agree on what matters</div><div class="ftext">SHAP analysis shows real and synthetic models rank the same features as most important. Revolving credit utilisation (GMSC) and external credit scores (Home Credit) dominate in both training regimes — explainability is the most robust dimension.</div></div>
+    <div class="fnd"><div class="fnum">05</div><div class="ftitle">Differences are statistically real</div><div class="ftext">Bootstrap testing across 1,000 iterations confirms all AUC differences are significant (p&lt;0.0001). The gaps between real and synthetic performance are not noise — they are consistent and reproducible.</div></div>
+    <div class="fnd"><div class="fnum">06</div><div class="ftitle">Synthetic data needs validation</div><div class="ftext">This study found that synthetic data cannot simply replace real data without careful testing. Under the EU AI Act and FCA guidance, credit scoring is high-risk AI — any training data substitution must be validated across all three dimensions: accuracy, fairness, and explainability.</div></div>
+  </div>
+
+</div>
+
+<footer>
+  <p>Yvanna Ayangma · MSc Big Data Analytics (Distinction)</p>
+  <p><a href="https://github.com/Yvannaesseba/fair-credit-assessment" target="_blank">View on GitHub →</a></p>
+</footer>
+
+<script>
+const PERF={
+  gmsc:[
+    {Model:'XGBoost',Data:'Real',AUC:0.8675,Recall:0.7621,Precision:0.2254,F1:0.3479},
+    {Model:'XGBoost',Data:'Synthetic',AUC:0.8283,Recall:0.7042,Precision:0.1973,F1:0.3083},
+    {Model:'LogisticRegression',Data:'Real',AUC:0.8333,Recall:0.7431,Precision:0.1837,F1:0.2946},
+    {Model:'LogisticRegression',Data:'Synthetic',AUC:0.8571,Recall:0.7486,Precision:0.2159,F1:0.3351},
+    {Model:'EBM',Data:'Real',AUC:0.8699,Recall:0.2050,Precision:0.5991,F1:0.3055},
+    {Model:'EBM',Data:'Synthetic',AUC:0.8386,Recall:0.2409,Precision:0.4769,F1:0.3201},
+  ],
+  hc:[
+    {Model:'XGBoost',Data:'Real',AUC:0.7516,Recall:0.6034,Precision:0.1811,F1:0.2786},
+    {Model:'XGBoost',Data:'Synthetic',AUC:0.6813,Recall:0.5599,Precision:0.1394,F1:0.2232},
+    {Model:'LogisticRegression',Data:'Real',AUC:0.6893,Recall:0.6550,Precision:0.1347,F1:0.2235},
+    {Model:'LogisticRegression',Data:'Synthetic',AUC:0.6744,Recall:0.5843,Precision:0.1332,F1:0.2169},
+    {Model:'EBM',Data:'Real',AUC:0.7593,Recall:0.0280,Precision:0.5628,F1:0.0534},
+    {Model:'EBM',Data:'Synthetic',AUC:0.6819,Recall:0.1929,Precision:0.2187,F1:0.2050},
+  ]
+};
+const FAIR={
+  gmsc:{
+    XGBoost:{dr:0.3156,ds:0.3112,er:0.2538,es:0.2523},
+    LogisticRegression:{dr:0.3462,ds:0.3689,er:0.2704,es:0.2749},
+    EBM:{dr:0.0380,ds:0.0517,er:0.0758,es:0.0932},
+  },
+  hc:{
+    XGBoost:{dr:0.3004,ds:0.1809,er:0.3650,es:0.2154},
+    LogisticRegression:{dr:0.4975,ds:0.1794,er:0.5133,es:0.1846},
+    EBM:{dr:0.0067,ds:0.0767,er:0.0302,es:0.1568},
+  }
+};
+const SHAP={
+  gmsc:{
+    XGBoost:{real:[{f:'RevolvingUtilization',v:0.816},{f:'30-59 Days Past Due',v:0.383},{f:'90 Days Late',v:0.356},{f:'Age',v:0.245},{f:'Open Credit Lines',v:0.171},{f:'60-89 Days Past Due',v:0.168},{f:'Debt Ratio',v:0.156},{f:'Monthly Income',v:0.116},{f:'Real Estate Loans',v:0.110},{f:'Dependents',v:0.071}],synth:[{f:'RevolvingUtilization',v:0.741},{f:'30-59 Days Past Due',v:0.412},{f:'90 Days Late',v:0.298},{f:'Debt Ratio',v:0.201},{f:'Age',v:0.189},{f:'Monthly Income',v:0.143},{f:'60-89 Days Past Due',v:0.131},{f:'Open Credit Lines',v:0.098},{f:'Real Estate Loans',v:0.087},{f:'Dependents',v:0.054}]},
+    LogisticRegression:{real:[{f:'RevolvingUtilization',v:0.612},{f:'30-59 Days Past Due',v:0.341},{f:'90 Days Late',v:0.289},{f:'Age',v:0.198},{f:'Debt Ratio',v:0.142},{f:'Monthly Income',v:0.121},{f:'60-89 Days Past Due',v:0.098},{f:'Open Credit Lines',v:0.076},{f:'Real Estate Loans',v:0.054},{f:'Dependents',v:0.031}],synth:[{f:'RevolvingUtilization',v:0.589},{f:'30-59 Days Past Due',v:0.367},{f:'90 Days Late',v:0.312},{f:'Age',v:0.201},{f:'Debt Ratio',v:0.178},{f:'Monthly Income',v:0.134},{f:'60-89 Days Past Due',v:0.089},{f:'Open Credit Lines',v:0.071},{f:'Real Estate Loans',v:0.048},{f:'Dependents',v:0.029}]},
+    EBM:{real:[{f:'RevolvingUtilization',v:0.743},{f:'30-59 Days Past Due',v:0.412},{f:'90 Days Late',v:0.367},{f:'Age',v:0.221},{f:'Debt Ratio',v:0.187},{f:'Monthly Income',v:0.143},{f:'60-89 Days Past Due',v:0.112},{f:'Open Credit Lines',v:0.089},{f:'Real Estate Loans',v:0.067},{f:'Dependents',v:0.043}],synth:[{f:'RevolvingUtilization',v:0.698},{f:'30-59 Days Past Due',v:0.389},{f:'90 Days Late',v:0.341},{f:'Age',v:0.234},{f:'Monthly Income',v:0.167},{f:'Debt Ratio',v:0.154},{f:'60-89 Days Past Due',v:0.098},{f:'Open Credit Lines',v:0.076},{f:'Real Estate Loans',v:0.054},{f:'Dependents',v:0.038}]}
+  },
+  hc:{
+    XGBoost:{real:[{f:'EXT_SOURCE_2',v:0.380},{f:'EXT_SOURCE_3',v:0.369},{f:'AMT_GOODS_PRICE',v:0.201},{f:'AMT_CREDIT',v:0.166},{f:'EXT_SOURCE_1',v:0.146},{f:'CODE_GENDER',v:0.120},{f:'NAME_EDUCATION_TYPE',v:0.112},{f:'AMT_ANNUITY',v:0.110},{f:'DAYS_EMPLOYED',v:0.105},{f:'DAYS_BIRTH',v:0.102}],synth:[{f:'EXT_SOURCE_2',v:0.298},{f:'EXT_SOURCE_3',v:0.267},{f:'AMT_CREDIT',v:0.198},{f:'AMT_GOODS_PRICE',v:0.187},{f:'DAYS_BIRTH',v:0.143},{f:'EXT_SOURCE_1',v:0.134},{f:'DAYS_EMPLOYED',v:0.121},{f:'AMT_ANNUITY',v:0.098},{f:'CODE_GENDER',v:0.087},{f:'NAME_EDUCATION_TYPE',v:0.076}]},
+    LogisticRegression:{real:[{f:'EXT_SOURCE_2',v:0.312},{f:'EXT_SOURCE_3',v:0.289},{f:'EXT_SOURCE_1',v:0.198},{f:'DAYS_BIRTH',v:0.156},{f:'AMT_CREDIT',v:0.143},{f:'CODE_GENDER',v:0.112},{f:'DAYS_EMPLOYED',v:0.098},{f:'AMT_ANNUITY',v:0.087},{f:'AMT_GOODS_PRICE',v:0.076},{f:'NAME_EDUCATION_TYPE',v:0.054}],synth:[{f:'EXT_SOURCE_2',v:0.287},{f:'EXT_SOURCE_3',v:0.264},{f:'EXT_SOURCE_1',v:0.189},{f:'AMT_CREDIT',v:0.167},{f:'DAYS_BIRTH',v:0.143},{f:'DAYS_EMPLOYED',v:0.121},{f:'CODE_GENDER',v:0.098},{f:'AMT_ANNUITY',v:0.076},{f:'AMT_GOODS_PRICE',v:0.065},{f:'NAME_EDUCATION_TYPE',v:0.043}]},
+    EBM:{real:[{f:'EXT_SOURCE_2',v:0.356},{f:'EXT_SOURCE_3',v:0.334},{f:'EXT_SOURCE_1',v:0.212},{f:'DAYS_BIRTH',v:0.178},{f:'AMT_CREDIT',v:0.156},{f:'DAYS_EMPLOYED',v:0.134},{f:'AMT_GOODS_PRICE',v:0.112},{f:'CODE_GENDER',v:0.089},{f:'AMT_ANNUITY',v:0.067},{f:'NAME_EDUCATION_TYPE',v:0.045}],synth:[{f:'EXT_SOURCE_2',v:0.312},{f:'EXT_SOURCE_3',v:0.289},{f:'DAYS_BIRTH',v:0.198},{f:'EXT_SOURCE_1',v:0.187},{f:'AMT_CREDIT',v:0.143},{f:'DAYS_EMPLOYED',v:0.121},{f:'AMT_GOODS_PRICE',v:0.098},{f:'CODE_GENDER',v:0.076},{f:'AMT_ANNUITY',v:0.054},{f:'NAME_EDUCATION_TYPE',v:0.032}]}
+  }
+};
+const ROC={
+  gmsc:{
+    XGBoost:{real:{auc:0.8675,pts:[[0,0],[0.02,0.35],[0.05,0.58],[0.1,0.72],[0.2,0.83],[0.3,0.89],[0.5,0.94],[0.7,0.97],[1,1]]},synth:{auc:0.8283,pts:[[0,0],[0.02,0.28],[0.05,0.50],[0.1,0.65],[0.2,0.77],[0.3,0.84],[0.5,0.91],[0.7,0.95],[1,1]]}},
+    LogisticRegression:{real:{auc:0.8333,pts:[[0,0],[0.02,0.25],[0.05,0.48],[0.1,0.63],[0.2,0.76],[0.3,0.83],[0.5,0.91],[0.7,0.95],[1,1]]},synth:{auc:0.8571,pts:[[0,0],[0.02,0.30],[0.05,0.54],[0.1,0.68],[0.2,0.80],[0.3,0.87],[0.5,0.93],[0.7,0.96],[1,1]]}},
+    EBM:{real:{auc:0.8699,pts:[[0,0],[0.02,0.36],[0.05,0.59],[0.1,0.73],[0.2,0.84],[0.3,0.90],[0.5,0.95],[0.7,0.97],[1,1]]},synth:{auc:0.8386,pts:[[0,0],[0.02,0.29],[0.05,0.51],[0.1,0.66],[0.2,0.78],[0.3,0.85],[0.5,0.92],[0.7,0.96],[1,1]]}}
+  },
+  hc:{
+    XGBoost:{real:{auc:0.7516,pts:[[0,0],[0.02,0.18],[0.05,0.35],[0.1,0.51],[0.2,0.66],[0.3,0.75],[0.5,0.86],[0.7,0.93],[1,1]]},synth:{auc:0.6813,pts:[[0,0],[0.02,0.12],[0.05,0.27],[0.1,0.42],[0.2,0.57],[0.3,0.67],[0.5,0.80],[0.7,0.90],[1,1]]}},
+    LogisticRegression:{real:{auc:0.6893,pts:[[0,0],[0.02,0.13],[0.05,0.28],[0.1,0.43],[0.2,0.58],[0.3,0.68],[0.5,0.81],[0.7,0.91],[1,1]]},synth:{auc:0.6744,pts:[[0,0],[0.02,0.11],[0.05,0.25],[0.1,0.40],[0.2,0.55],[0.3,0.65],[0.5,0.79],[0.7,0.89],[1,1]]}},
+    EBM:{real:{auc:0.7593,pts:[[0,0],[0.02,0.19],[0.05,0.36],[0.1,0.52],[0.2,0.67],[0.3,0.76],[0.5,0.87],[0.7,0.94],[1,1]]},synth:{auc:0.6819,pts:[[0,0],[0.02,0.12],[0.05,0.27],[0.1,0.42],[0.2,0.58],[0.3,0.68],[0.5,0.81],[0.7,0.90],[1,1]]}}
+  }
+};
+
+let ds='gmsc',model='XGBoost',rocCh=null,barCh=null,fairCh=null;
+const f4=n=>n.toFixed(4),pct=n=>(n>=0?'+':'')+f4(n);
+const gp=(d,m,data)=>PERF[d].find(r=>r.Model===m&&r.Data===data);
+const dsLabel=d=>d==='gmsc'?'Give Me Some Credit':'Home Credit';
+
+function render(){
+  const real=gp(ds,model,'Real'),synth=gp(ds,model,'Synthetic');
+  const fair=FAIR[ds][model],shap=SHAP[ds][model],roc=ROC[ds][model];
+  const diff=synth.AUC-real.AUC;
+
+  document.getElementById('sg').innerHTML=`
+    <div class="sc fu"><div class="sl">AUC — Real Data</div><div class="sv">${f4(real.AUC)}</div><div class="ss">How well it ranks defaulters vs non-defaulters</div></div>
+    <div class="sc t2 fu"><div class="sl">AUC — Synthetic Data</div><div class="sv">${f4(synth.AUC)}</div><div class="ss">Same model, trained on fake data</div><span class="badge ${diff>=0?'up':'dn'}">${pct(diff)} vs real</span></div>
+    <div class="sc t3 fu"><div class="sl">F1 Score</div><div class="sv">${f4(real.F1)}</div><div class="ss">Real · <span style="color:var(--synth)">${f4(synth.F1)}</span> Synthetic</div></div>
+    <div class="sc t4 fu"><div class="sl">Recall</div><div class="sv">${f4(real.Recall)}</div><div class="ss">Real · <span style="color:var(--synth)">${f4(synth.Recall)}</span> Synthetic</div></div>`;
+
+  document.getElementById('iROC').innerHTML=diff>=0
+    ?`<strong>Synthetic outperforms real</strong> for ${model} on ${dsLabel(ds)} — AUC ${f4(synth.AUC)} vs ${f4(real.AUC)}. The synthetic-trained model generalises better to unseen real data in this case, which is a counterintuitive but statistically confirmed result.`
+    :`<strong>Real data outperforms synthetic</strong> for ${model} on ${dsLabel(ds)} — AUC ${f4(real.AUC)} vs ${f4(synth.AUC)}. The gap of ${f4(Math.abs(diff))} AUC points is statistically significant (p&lt;0.0001, confirmed via 1,000 bootstrap iterations).`;
+
+  const t1r=shap.real[0].f,t1s=shap.synth[0].f;
+  document.getElementById('iSHAP').innerHTML=t1r===t1s
+    ?`Both real and synthetic models agree: <strong>${t1r}</strong> is the strongest driver of default prediction. Top-10 feature rankings are broadly consistent — explainability is the most stable dimension across training regimes.`
+    :`Feature priorities shift between regimes: real model leads with <strong>${t1r}</strong> while synthetic model prioritises <strong>${t1s}</strong>. This divergence matters for regulatory explainability under the EU AI Act, which requires credit decisions to be meaningfully explained.`;
+
+  document.getElementById('dpR').textContent=f4(fair.dr);
+  document.getElementById('dpS').textContent=f4(fair.ds);
+  document.getElementById('eoR').textContent=f4(fair.er);
+  document.getElementById('eoS').textContent=f4(fair.es);
+  const dpd=fair.ds-fair.dr,eod=fair.es-fair.er;
+  document.getElementById('dpN').textContent=dpd<0?`Synthetic training reduces the approval rate gap by ${f4(Math.abs(dpd))} — age groups are treated more equally.`:`Synthetic training increases the approval rate gap by ${f4(dpd)} — age groups are treated less equally.`;
+  document.getElementById('eoN').textContent=eod<0?`Synthetic training reduces the detection gap by ${f4(Math.abs(eod))} — defaulters are identified more consistently across ages.`:`Synthetic training increases the detection gap by ${f4(eod)} — the model becomes less consistent at identifying defaulters across age groups.`;
+  document.getElementById('iFair').innerHTML=`For <strong>${model}</strong> on <strong>${dsLabel(ds)}</strong> — demographic parity gap: <strong>${f4(fair.dr)}</strong> (real) → <strong>${f4(fair.ds)}</strong> (synthetic). Equal opportunity gap: <strong>${f4(fair.er)}</strong> → <strong>${f4(fair.es)}</strong>. A score of 0 would mean all age groups are treated identically.`;
+
+  document.getElementById('rocTitle').textContent=`ROC Curve — ${model} on ${dsLabel(ds)}`;
+  drawROC(roc);drawBar();drawSHAP(shap);drawFair();drawTable();
+}
+
+function drawROC(roc){
+  if(rocCh)rocCh.destroy();
+  rocCh=new Chart(document.getElementById('rocChart'),{type:'line',data:{datasets:[
+    {label:`Real (AUC ${f4(roc.real.auc)})`,data:roc.real.pts.map(p=>({x:p[0],y:p[1]})),borderColor:'#34d399',borderWidth:2,pointRadius:0,fill:false,tension:0.4},
+    {label:`Synthetic (AUC ${f4(roc.synth.auc)})`,data:roc.synth.pts.map(p=>({x:p[0],y:p[1]})),borderColor:'#fb923c',borderWidth:2,pointRadius:0,fill:false,tension:0.4},
+    {label:'Random baseline',data:[{x:0,y:0},{x:1,y:1}],borderColor:'#243050',borderWidth:1,pointRadius:0,fill:false,borderDash:[4,4]}
+  ]},options:{responsive:true,animation:{duration:400},scales:{
+    x:{type:'linear',min:0,max:1,title:{display:true,text:'False Positive Rate',color:'#64748b',font:{size:11}},grid:{color:'#162035'},ticks:{color:'#64748b',font:{size:10}}},
+    y:{min:0,max:1,title:{display:true,text:'True Positive Rate',color:'#64748b',font:{size:11}},grid:{color:'#162035'},ticks:{color:'#64748b',font:{size:10}}}
+  },plugins:{legend:{labels:{color:'#94a3b8',font:{size:10},boxWidth:10}}}}});
+}
+
+function drawBar(){
+  if(barCh)barCh.destroy();
+  const models=['XGBoost','LogisticRegression','EBM'],labels=['XGBoost','Log. Reg.','EBM'];
+  barCh=new Chart(document.getElementById('barChart'),{type:'bar',data:{labels,datasets:[
+    {label:'Real',data:models.map(m=>gp(ds,m,'Real').AUC),backgroundColor:'rgba(52,211,153,0.7)',borderColor:'#34d399',borderWidth:1,borderRadius:6},
+    {label:'Synthetic',data:models.map(m=>gp(ds,m,'Synthetic').AUC),backgroundColor:'rgba(251,146,60,0.7)',borderColor:'#fb923c',borderWidth:1,borderRadius:6}
+  ]},options:{responsive:true,animation:{duration:400},scales:{
+    y:{min:ds==='hc'?0.5:0.7,max:1,grid:{color:'#162035'},ticks:{color:'#64748b',font:{size:10}}},
+    x:{grid:{color:'transparent'},ticks:{color:'#64748b',font:{size:10}}}
+  },plugins:{legend:{labels:{color:'#94a3b8',font:{size:10},boxWidth:10}},tooltip:{callbacks:{label:c=>` AUC: ${c.parsed.y.toFixed(4)}`}}}}});
+}
+
+function drawSHAP(shap){
+  const mx=Math.max(...shap.real.map(d=>d.v),...shap.synth.map(d=>d.v));
+  const rows=(items,cls)=>items.map(d=>`<div class="shr"><div class="shf" title="${d.f}">${d.f}</div><div class="shbw"><div class="shb ${cls}" style="width:${(d.v/mx*100).toFixed(1)}%"></div></div><div class="shv">${d.v.toFixed(3)}</div></div>`).join('');
+  document.getElementById('shgrid').innerHTML=`
+    <div class="shcard fu"><div class="shlabel r">Trained on Real Data</div>${rows(shap.real,'r')}</div>
+    <div class="shcard fu"><div class="shlabel s">Trained on Synthetic Data</div>${rows(shap.synth,'s')}</div>`;
+}
+
+function drawFair(){
+  if(fairCh)fairCh.destroy();
+  const models=['XGBoost','LogisticRegression','EBM'],labels=['XGBoost','Log. Reg.','EBM'];
+  fairCh=new Chart(document.getElementById('fairChart'),{type:'bar',data:{labels,datasets:[
+    {label:'DP Real',data:models.map(m=>FAIR[ds][m].dr),backgroundColor:'rgba(52,211,153,0.6)',borderColor:'#34d399',borderWidth:1,borderRadius:4},
+    {label:'DP Synthetic',data:models.map(m=>FAIR[ds][m].ds),backgroundColor:'rgba(251,146,60,0.6)',borderColor:'#fb923c',borderWidth:1,borderRadius:4},
+    {label:'EO Real',data:models.map(m=>FAIR[ds][m].er),backgroundColor:'rgba(167,139,250,0.4)',borderColor:'#a78bfa',borderWidth:1,borderRadius:4},
+    {label:'EO Synthetic',data:models.map(m=>FAIR[ds][m].es),backgroundColor:'rgba(167,139,250,0.15)',borderColor:'#a78bfa',borderWidth:1,borderRadius:4}
+  ]},options:{responsive:true,animation:{duration:400},scales:{
+    y:{min:0,title:{display:true,text:'Fairness gap (lower = fairer)',color:'#64748b',font:{size:10}},grid:{color:'#162035'},ticks:{color:'#64748b',font:{size:10}}},
+    x:{grid:{color:'transparent'},ticks:{color:'#64748b',font:{size:10}}}
+  },plugins:{legend:{labels:{color:'#94a3b8',font:{size:10},boxWidth:10}},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y.toFixed(4)}`}}}}});
+}
+
+function drawTable(){
+  let html=`<thead><tr><th>Model</th><th>Data</th><th>AUC</th><th>Recall</th><th>Precision</th><th>F1</th></tr></thead><tbody>`;
+  PERF[ds].forEach(r=>{html+=`<tr><td>${r.Model}</td><td class="${r.Data==='Real'?'dr':'ds'}">${r.Data}</td><td>${f4(r.AUC)}</td><td>${f4(r.Recall)}</td><td>${f4(r.Precision)}</td><td>${f4(r.F1)}</td></tr>`});
+  document.getElementById('tbl').innerHTML=html+'</tbody>';
+}
+
+function setDS(d,btn){ds=d;btn.closest('.trow').querySelectorAll('.tbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');render()}
+function setM(m,btn){model=m;btn.closest('.trow').querySelectorAll('.tbtn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');render()}
+
+render();
+</script>
+</body>
+</html>
